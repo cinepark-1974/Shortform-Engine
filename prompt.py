@@ -1279,12 +1279,157 @@ def build_convert_prompt(source_text, formula_key,
     {{"ep_range":"EP 11~15","summary":"","emotion_modes":["극한","공포","배신감","절망","격분"],"cliff_type":"Reversal","sweet_bitter":"Bitter"}},
     {{"ep_range":"EP 16~20","summary":"과금 전환 — 역대급 도파민","emotion_modes":["짜릿","카타르시스","격렬","짜릿","카타르시스"],"cliff_type":"Reversal","sweet_bitter":"Bitter"}},
     {{"ep_range":"EP 21~{total_eps}","summary":"","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"Bittersweet"}}
-  ],
-  "pilot_ep1": "EP1 대본 전문. [자막] 태그 포함. 클리프행어 필수. 도파민 최대치. 원고 포맷 엄수. 500~800자.",
-  "pilot_ep2": "EP2 대본 전문. EP1 클리프행어 부분 해소+새 갈등+클리프행어. 원고 포맷 엄수."
+  ]
 }}
 
 {JSON_RULES}
-- pilot_ep1/ep2: 실제 대본 품질. 원고 포맷 엄수. 감정 모드 최대치.
 - supporting_cast_design: 3명 모두 구체적으로. 예시 대사 포함.
 - logline: 주인공+목표+장애물+판돈 구조 엄수."""
+
+
+# ═══════════════════════════════════════════════════════════════
+#  파일럿 집필 (2단계 — Opus 전용)
+# ═══════════════════════════════════════════════════════════════
+
+def build_pilot_prompt(convert_result, source_text="", market="한국", rating="teen"):
+    """변환 분석(1단계) 결과를 받아 EP1+EP2 파일럿 대본을 Opus로 집필한다."""
+    rating_info = CONTENT_RATING_RULES.get(rating, CONTENT_RATING_RULES["teen"])
+
+    # 변환 결과에서 핵심 정보 추출
+    oa = convert_result.get("original_analysis", {})
+    cs = convert_result.get("conversion_strategy", {})
+    sc = convert_result.get("shortform_concept", {})
+    dd = cs.get("dopamine_design", {})
+    ep_map = convert_result.get("episode_map", [])
+
+    # EP1~2 감정 모드 추출
+    ep1_modes = ep_map[0].get("emotion_modes", ["굴욕", "연민"]) if ep_map else ["굴욕", "연민"]
+    ep1_mode = ep1_modes[0] if ep1_modes else "굴욕"
+    ep2_mode = ep1_modes[1] if len(ep1_modes) > 1 else "연민"
+
+    m1 = EMOTIONAL_MODES.get(ep1_mode, {})
+    m2 = EMOTIONAL_MODES.get(ep2_mode, {})
+
+    # 감초 정보
+    supporting_info = cs.get("supporting_cast_design", "")
+
+    return f"""[TASK] 파일럿 EP1 + EP2 대본 집필 — 도파민 최대치
+
+★★★ 이것은 시리즈의 첫 인상이다. 여기서 관객을 못 잡으면 끝이다. ★★★
+★★★ 평범하게 쓰면 실패다. 첫 5초에 스크롤을 멈추고, 60초 안에 결제를 결심하게 만들어라. ★★★
+
+[작품]
+제목: {sc.get('title', '')}
+로그라인: {sc.get('logline', '')}
+시장: {market} | 수위: {rating_info['name']}
+
+[원본 핵심 갈등]
+{oa.get('core_conflict', '')}
+
+[변환 전략]
+주인공 재설계: {cs.get('protagonist_rewrite', '')}
+악역 설계: {cs.get('villain_injection', '')}
+숨겨진 정체: {cs.get('hidden_identity', '')}
+감초: {supporting_info}
+
+[도파민 설계]
+주력: {dd.get('primary_trigger', '')}
+중독 루프: {dd.get('addiction_loop', '')}
+역전 타이밍: {dd.get('reversal_timing', '')}
+감정 시소: {dd.get('seesaw', '')}
+
+[수위 규정]
+허용: {' / '.join(rating_info['allowed'][:3])}
+금지: {' / '.join(rating_info['forbidden'][:2])}
+연출: {rating_info['technique']}
+도파민: {rating_info['dopamine_note']}
+
+[EP1 감정 모드 — {m1.get('emoji','')} {ep1_mode}]
+  최대화 원칙: {m1.get('max_principle', '')}
+  억압: {m1.get('suppression', '')}
+  폭발: {m1.get('explosion', '')}
+  씬 연출: {m1.get('scene_direction', '')}
+  대사 규칙: {m1.get('dialogue_rule', '')}
+  클리프행어: {m1.get('cliffhanger', '')}
+  좋은 예시: {m1.get('good_scene', '')}
+  절대 금지: {m1.get('kill', '')}
+
+[EP2 감정 모드 — {m2.get('emoji','')} {ep2_mode}]
+  최대화 원칙: {m2.get('max_principle', '')}
+  억압: {m2.get('suppression', '')}
+  폭발: {m2.get('explosion', '')}
+  씬 연출: {m2.get('scene_direction', '')}
+  대사 규칙: {m2.get('dialogue_rule', '')}
+  클리프행어: {m2.get('cliffhanger', '')}
+  좋은 예시: {m2.get('good_scene', '')}
+  절대 금지: {m2.get('kill', '')}
+
+[EP1 첫 프레임]
+스크롤 멈춤: {sc.get('hook_ep1', '')}
+첫 자막: {sc.get('first_subtitle', '')}
+
+{SYSTEM_PROMPT}
+
+{DOPAMINE_RULES}
+
+{DOPAMINE_CHARACTERS}
+
+[파일럿 집필 강화 규칙]
+1. EP1 첫 프레임 = 스크롤 멈춤. 감정 극단 상태부터 시작. 설명 도입 절대 금지.
+2. EP1 첫 대사 = 맥락 없이도 궁금한 한 줄. '이게 뭔 소린지' 궁금해야 한다.
+3. 악역의 첫 나쁜 짓은 추상적이면 안 된다. 관객이 '저거 우리 직장에도 있어!' 할 정도로 구체적.
+4. EP1 클리프행어 = 가장 강한 유형으로. 답을 절대 주지 않는다.
+5. EP2 시작 = EP1 클리프행어를 30% 해소. 완전 해소 절대 금지.
+6. EP2 = EP1과 다른 감정 모드. 같은 톤 반복 금지.
+7. EP2 클리프행어 = EP1보다 더 강하게. EP3 결제를 만드는 순간.
+8. 두 화 모두 500~800자. 사건 밀도가 기준.
+9. 감정을 설명하는 대사 → 즉시 삭제하고 행동으로 대체.
+10. 지문은 카메라가 찍을 수 있는 것만. 심리 묘사 금지.
+
+[나쁜 파일럿 vs 좋은 파일럿]
+나쁜: "조용한 아침. 세영이 출근 준비를 한다." → 아무 감정 없다. 스크롤 넘긴다.
+좋음: "세영의 손이 떨린다. 핸드폰 화면 — 통장 잔고 1,200원." → 즉시 감정 발동.
+
+나쁜: '저는 이 회사에서 열심히 하고 있습니다' → 설명 대사. 도파민 제로.
+좋음: '네, 알겠습니다.' (세영이 고개를 숙인다. 주먹이 하얗다.) → 행동이 감정.
+
+나쁜 클리프행어: "세영이 집으로 돌아간다." → 다음 화 안 본다.
+좋은 클리프행어: "문이 열린다. 세영이 고개를 든다. 서 있는 사람은 —" → 끊긴다.
+
+[출력 포맷 — 정확히 따를 것]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EP 1 | [장소] | {m1.get('emoji','')} {ep1_mode} | [도파민]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[자막] "[충격/반전/사이다] 첫 5초 자막"
+
+[장소]. [낮/밤/저녁].
+[Hook — 첫 프레임 지문 1~2줄. 감정 극단.]
+
+[인물명]  [대사]
+
+[지문 — 현재형 최대 2줄]
+
+[인물명]  [대사]
+
+[클리프행어 — 마지막 1~2줄. 끊는다.]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EP 2 | [장소] | {m2.get('emoji','')} {ep2_mode} | [도파민]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(동일 포맷)
+
+[출력 전 자기검토 — 한 항목이라도 실패하면 그 줄을 고쳐서 출력]
+□ EP1 첫 프레임: 감정 극단 상태인가? 일상 묘사로 시작하지 않았는가?
+□ EP1 첫 대사: 맥락 없이도 궁금한가? 설명 대사가 아닌가?
+□ 악역: 구체적 나쁜 짓이 보이는가? 추상적 악당이 아닌가?
+□ 감정: 감정을 직접 말하는 대사가 없는가?
+□ 지문: 카메라가 찍을 수 없는 것이 없는가?
+□ 같은 감정/행동을 두 번 쓰지 않았는가?
+□ EP1 클리프행어: 답을 주지 않는가? 충분히 강한가?
+□ EP2: EP1과 다른 감정 톤인가?
+□ EP2 클리프행어: EP1보다 더 강한가? EP3 결제를 만드는가?
+□ 500~800자: 글자 수가 아니라 사건 밀도가 충분한가?
+실패 항목이 하나라도 있으면 해당 줄을 고쳐서 출력한다.
+
+JSON 아님. 텍스트. 두 화 모두 위 포맷 엄수."""
