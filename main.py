@@ -92,6 +92,10 @@ hr{border-color:var(--border)!important;}
 .brand-sub{font-size:.72rem;font-weight:600;letter-spacing:.18em;color:var(--dim)}
 .sec{font-size:1.05rem;font-weight:800;color:var(--navy);font-family:var(--head);
      padding:.5rem 0;border-bottom:2px solid var(--y);margin-bottom:1rem}
+.step-hd{background:var(--y);color:var(--navy);font-family:var(--head);font-weight:800;
+         font-size:1.05rem;padding:.65rem 1.2rem;border-radius:8px;margin-bottom:1.2rem;
+         display:flex;align-items:center;justify-content:space-between}
+.step-hd .step-en{font-size:.68rem;font-weight:700;letter-spacing:.15em;color:var(--navy);opacity:.65}
 .en{font-size:.7rem;font-weight:600;color:var(--dim);letter-spacing:.1em;margin-left:.5rem}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1rem}
 .callout{background:var(--lb);border-left:4px solid var(--y);border-radius:0 8px 8px 0;padding:.8rem 1rem;margin-bottom:.8rem}
@@ -289,7 +293,7 @@ with tab_create:
     st.markdown('<hr>', unsafe_allow_html=True)
 
     # ── STEP 1: 컨셉 ──────────────────────────────
-    st.markdown('<div class="sec">STEP 1 &nbsp; 컨셉 설정 <span class="en">CONCEPT SETUP</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-hd">📝 컨셉 설정 <span class="step-en">STEP 1 · CONCEPT</span></div>', unsafe_allow_html=True)
 
     formula_options = {
         "재벌복수":"👑 재벌 복수 — 신분격차+출생비밀+지위역전",
@@ -543,7 +547,7 @@ with tab_create:
     # ── STEP 2: 아크 ────────────────────────────────
     if st.session_state.step >= 1 and st.session_state.concept:
         st.markdown("---")
-        st.markdown('<div class="sec">STEP 2 &nbsp; 100화 아크 설계 <span class="en">SEASON ARC</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="step-hd">📊 100화 아크 설계 <span class="step-en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
 
         if st.button("📊 100화 아크 + 도파민 마일스톤 생성", type="primary", use_container_width=True):
             total = st.session_state.concept.get("total_eps",100)
@@ -631,7 +635,7 @@ with tab_create:
     # ── STEP 3: 집필 ────────────────────────────────
     if st.session_state.step >= 2 and st.session_state.arc:
         st.markdown("---")
-        st.markdown('<div class="sec">STEP 3 &nbsp; 블록 집필 <span class="en">BLOCK WRITING</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="step-hd">✍️ 블록 집필 <span class="step-en">STEP 3 · BLOCK WRITING</span></div>', unsafe_allow_html=True)
 
         blocks = st.session_state.arc.get("blocks",[])
 
@@ -803,7 +807,7 @@ with tab_create:
     # ── STEP 4: 다운로드 ────────────────────────────
     if st.session_state.blocks:
         st.markdown("---")
-        st.markdown('<div class="sec">STEP 4 &nbsp; 다운로드 <span class="en">DOWNLOAD</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="step-hd">⬇️ 다운로드 <span class="step-en">STEP 4 · DOWNLOAD</span></div>', unsafe_allow_html=True)
 
         total_b = len(st.session_state.blocks)
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
@@ -853,7 +857,7 @@ with tab_create:
 # ═══════════════════════════════════════════════════
 with tab_convert:
     st.markdown("---")
-    st.markdown('<div class="sec">🔄 기존 글 → 숏폼 변환 <span class="en">CONVERT TO SHORTFORM</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-hd">🔄 기존 글 → 숏폼 변환 <span class="step-en">CONVERT TO SHORTFORM</span></div>', unsafe_allow_html=True)
     st.caption("소설·시나리오·웹툰·실화 등 어떤 텍스트든 도파민 탑재 숏폼으로 변환합니다.")
 
     col_cv1, col_cv2 = st.columns([2,1])
