@@ -1,7 +1,7 @@
 """
 👖 BLUE JEANS SHORTFORM ENGINE v2.1 — prompt.py
 The Ultimate Shortform Drama Engine
-막장 공식 × 도파민 최대화 × 25감정 모드 × 중국 시장 × 감초 시스템
+막장 공식 × 도파민 최대화 × 25감정 모드 × 글로벌 시장 × 감초 시스템
 © 2026 BLUE JEANS PICTURES
 """
 
@@ -433,7 +433,7 @@ EMOTIONAL_MODES = {
     },
     "스윗": {
         "category": "喜", "emoji": "🍬", "name": "스윗 (Sweet)",
-        "desc": "달달한 순간. 설렘의 확인. 甜 리듬의 핵심.",
+        "desc": "달달한 순간. 설렘의 확인. Sweet 리듬의 핵심.",
         "dopamine": "옥시토신 + D6 밀당의 달달한 면",
         "max_principle": "스윗은 일상 속 작은 순간. 크고 로맨틱한 이벤트가 아니라.",
         "suppression": "아무렇지 않은 척. 그러나 행동이 배신한다.",
@@ -641,7 +641,7 @@ MAKJANG_FORMULAS = {
         "target": "30~50대 여성",
         "arc_hint": "EP 1~5 학대/굴욕 극대화, EP 6~15 분노 축적, EP 16 출생 비밀, EP 17~50 반격, EP 51~85 대결, EP 86~100 역전",
         "dopamine_key": "대리복수(D7)+지위역전(D2). 굴욕을 최대한 구체적으로. 역전을 관객 예상보다 5화 늦춰라.",
-        "china_variant": "婆媳(고부갈등)+大女主 각성. '당신 같은 집안이 감히' 류 대사가 중국 댓글 폭발. 역전 스케일을 크게.",
+        "global_variant": "Family power struggle + Underdog rise. 'You dare challenge this family?' — status reversal at scale.",
         "emotional_arc": ["굴욕", "연민", "분노", "극한", "배신감", "통쾌", "짜릿", "격분", "복수", "카타르시스", "승리", "해방"],
     },
     "능력각성": {
@@ -652,7 +652,7 @@ MAKJANG_FORMULAS = {
         "target": "남녀 30~50대",
         "arc_hint": "EP 1~5 무시/굴욕 반복, EP 6~15 한계에 몰림, EP 16 능력 각성, EP 17~50 하나씩 복수, EP 51~85 최종 대결, EP 86~100 완전 역전",
         "dopamine_key": "정체드러남(D3)+예측오류(D4). 능력 각성 직전까지 철저히 무능해 보이게. 드러나는 낙차가 도파민의 크기.",
-        "china_variant": "隐身(신분 숨기기). '사실 나는...' 대사 직전에 끊기. 중국 과금 전환 1위 패턴.",
+        "global_variant": "Hidden Identity reveal. Cut right before 'Actually, I am...' — #1 paywall conversion pattern globally.",
         "emotional_arc": ["굴욕", "연민", "분노", "공감", "극한", "격분", "짜릿", "통쾌", "복수", "카타르시스"],
     },
     "귀환재회": {
@@ -663,7 +663,7 @@ MAKJANG_FORMULAS = {
         "target": "여성 전 연령",
         "arc_hint": "EP 1~5 귀환+정체 숨김, EP 6~15 과거 조각 공개, EP 16 아이 아버지 폭로, EP 17~50 재회와 갈등, EP 51~85 과거의 진실, EP 86~100 최종 선택",
         "dopamine_key": "밀당(D6)+정체드러남(D3). 재회했지만 서로 모르는 척. 알면서 모르는 척. 이 긴장이 도파민의 원천.",
-        "china_variant": "孩子(아이) 정체 = 중국 숏폼 과금 전환 1위 공식.",
+        "global_variant": "Child's true father reveal = #1 paywall conversion formula in short-form drama worldwide.",
         "emotional_arc": ["그리움", "설렘", "긴장", "미련", "공포", "배신감", "재회", "유혹", "극한", "승리"],
     },
     "복수극": {
@@ -674,7 +674,7 @@ MAKJANG_FORMULAS = {
         "target": "남녀 불문",
         "arc_hint": "EP 1~5 배신/추락, EP 6~15 힘 키우기, EP 16 첫 복수 성공, EP 17~50 차례차례 복수, EP 51~85 메인 악역 대결, EP 86~100 완전한 복수",
         "dopamine_key": "대리복수(D7)+간헐적강화(D1). 복수 대상마다 작은 도파민. 메인 악역 복수는 최후까지 지연.",
-        "china_variant": "一个个打倒(한 명씩). 각 악역 몰락 절대 생략 금지. 복수 성공 직후 새 악역 등장.",
+        "global_variant": "Take them down one by one. Never skip a villain's downfall. New villain appears right after each revenge.",
         "emotional_arc": ["배신감", "상실", "절망", "분노", "통쾌", "복수", "질투", "격분", "짜릿", "카타르시스"],
     },
     "감성숏폼": {
@@ -685,7 +685,7 @@ MAKJANG_FORMULAS = {
         "target": "20~40대 여성",
         "arc_hint": "EP 1~5 설렘+갈등 씨앗, EP 6~15 관계 깊어짐+균열, EP 16 배신/비밀, EP 17~50 상처, EP 51~85 진짜 감정, EP 86~100 선택",
         "dopamine_key": "밀당(D6)+위험설렘(D5). 이어질 것 같다가 멀어지는 반복. 이어진 순간 즉시 새 위기.",
-        "china_variant": "甜宠+虐心 교차. 甜 2화→虐 1화 기본 리듬.",
+        "global_variant": "Sweet + Bitter alternation. Sweet 2 eps → Bitter 1 ep basic rhythm.",
         "emotional_arc": ["설렘", "스윗", "유혹", "긴장", "배신감", "미련", "공감", "연민", "재회", "해방"],
     },
 }
@@ -695,17 +695,17 @@ MAKJANG_FORMULAS = {
 #  CHINA MARKET RULES
 # ═══════════════════════════════════════════════════════════════
 
-CHINA_MARKET_RULES = """
+GLOBAL_MARKET_RULES = """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-중국 시장 특화 규칙 (抖音/快手/微短剧)
+글로벌 숏폼 시장 규칙 (ReelShort/DramaBox/TikTok/YouTube Shorts)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-C1. 大女主: 처음엔 최대한 약하게 → 결국 모든 것을 가진다.
-C2. 隐身: '사실 나는...' 대사 직전에 끊기. EP 15~20에 배치.
-C3. 婆媳: 시어머니 모욕 대사가 구체적일수록 조회수 상승.
-C4. 孩子: '이 아이의 아버지는...' 직전 끊기 = 과금 전환 1위.
-C5. 무음 60%: [자막] 태그로 첫 5초 훅 자막 필수.
-C6. 甜虐: 甜 2화 → 虐 1화 기본 리듬. 안심→배신→달달함 반복.
-C7. 5초 자막: [충격]/[반전]/[사이다] 중 하나로 시작."""
+G1. Underdog Rise: 처음엔 최대한 약하게 → 결국 모든 것을 가진다.
+G2. Hidden Identity: '사실 나는...' 대사 직전에 끊기. EP 15~20에 배치.
+G3. Family Conflict: 시어머니/상사 모욕 대사가 구체적일수록 조회수 상승.
+G4. Secret Child: '이 아이의 아버지는...' 직전 끊기 = 과금 전환 1위.
+G5. 무음 60%: [자막] 태그로 첫 5초 훅 자막 필수.
+G6. Bittersweet: Sweet 2화 → Bitter 1화 기본 리듬. 안심→배신→달달함 반복.
+G7. 5초 자막: [충격]/[반전]/[사이다] 중 하나로 시작."""
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -823,7 +823,7 @@ CONVERT_INTENSITY = {
     "감성_숏폼": {
         "name": "감성 숏폼 (원작 보존)",
         "desc": "설렘/배신/눈물. 도파민 D5/D6 중심.",
-        "rules": "원작 감성 최대 보존. 甜虐 교차 리듬. 클리프행어는 감정/배신/비밀 위주. D5+D6 중심.",
+        "rules": "원작 감성 최대 보존. Bittersweet 교차 리듬. 클리프행어는 감정/배신/비밀 위주. D5+D6 중심.",
     },
 }
 
@@ -850,9 +850,9 @@ def build_concept_prompt(formula_key, protagonist, villain,
     rating_info = CONTENT_RATING_RULES.get(rating, CONTENT_RATING_RULES["teen"])
     custom_block = f"\n[커스텀/감초 힌트]\n{custom_idea}" if custom_idea else ""
 
-    china_block = ""
-    if market in ["중국", "글로벌"]:
-        china_block = f"\n{CHINA_MARKET_RULES}\n[이 공식 중국 특화]\n{formula.get('china_variant', '')}\n"
+    global_block = ""
+    if market in ["글로벌", "중국"]:
+        global_block = f"\n{GLOBAL_MARKET_RULES}\n[이 공식 글로벌 특화]\n{formula.get('global_variant', '')}\n"
 
     return f"""[TASK] 숏폼 드라마 컨셉 설정
 
@@ -863,7 +863,7 @@ def build_concept_prompt(formula_key, protagonist, villain,
 타겟: {formula.get('target', '')} | 시장: {market}
 도파민 키: {formula.get('dopamine_key', '')}
 {custom_block}
-{china_block}
+{global_block}
 [수위 등급: {rating_info['name']}]
 허용: {' / '.join(rating_info['allowed'])}
 금지: {' / '.join(rating_info['forbidden'])}
@@ -938,14 +938,14 @@ def build_concept_prompt(formula_key, protagonist, villain,
   "character_bible_note": "전체 캐릭터 관계 1줄 — 누가 누구 편이고 누가 숨겨진 패를 가지는가",
   "relationship_pattern": "A적연인|B가해자피해자역전|C비밀연대|D삼각관계|E보호피보호",
   "secrets": [
-    {{"secret":"","reveal_ep":0,"impact":"","dopamine_type":"D1~D9","china_impact":""}},
-    {{"secret":"","reveal_ep":0,"impact":"","dopamine_type":"","china_impact":""}},
-    {{"secret":"","reveal_ep":0,"impact":"","dopamine_type":"","china_impact":""}}
+    {{"secret":"","reveal_ep":0,"impact":"","dopamine_type":"D1~D9","market_impact":""}},
+    {{"secret":"","reveal_ep":0,"impact":"","dopamine_type":"","market_impact":""}},
+    {{"secret":"","reveal_ep":0,"impact":"","dopamine_type":"","market_impact":""}}
   ],
   "paywall_design": {{
     "ep16_reversal": "EP16 대반전 — 관객이 결제하는 이유",
     "ep16_dopamine": "D1~D9 중 해당 도파민",
-    "ep16_china": "중국 관객 기준 임팩트",
+    "ep16_market": "글로벌 관객 기준 임팩트",
     "ep20_cliffhanger": "EP20 최강 클리프행어"
   }},
   "location_design": {{
@@ -981,9 +981,9 @@ def build_arc_prompt(concept, total_eps=100):
     market = concept.get("market", "한국")
     dopamine = concept.get("dopamine_design", {})
 
-    china_block = ""
-    if market in ["중국", "글로벌"]:
-        china_block = "[중국 아크 추가]\n- [충격/반전/사이다] 자막 훅 명시\n- 隐身 드러남: 과금 직전\n- 甜虐 리듬: 블록별 명시\n- 孩子 클리프행어: EP 15~17 권장\n"
+    global_block = ""
+    if market in ["글로벌", "중국"]:
+        global_block = "[글로벌 아크 추가]\n- [충격/반전/사이다] 자막 훅 명시\n- Hidden Identity 드러남: 과금 직전\n- Bittersweet 리듬: 블록별 명시\n- Secret Child 클리프행어: EP 15~17 권장\n"
 
     return f"""[TASK] {total_eps}화 시즌 아크 설계
 
@@ -996,7 +996,7 @@ def build_arc_prompt(concept, total_eps=100):
 중독 루프: {dopamine.get('addiction_loop','')}
 시소 패턴: {dopamine.get('seesaw_pattern','')}
 EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
-{china_block}
+{global_block}
 [아크 힌트]
 {formula.get('arc_hint','')}
 
@@ -1018,7 +1018,7 @@ EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
     {{
       "block_no": 1, "ep_range": "EP 1~5",
       "phase": "도입", "theme": "핵심 감정/사건",
-      "sweet_bitter": "甜|虐|甜虐교차",
+      "sweet_bitter": "Sweet|Bitter|Bittersweet",
       "dopamine_target": "이 블록 주력 도파민",
       "recommended_emotion_modes": ["굴욕","연민","분노","굴욕","공감"],
       "episodes": [
@@ -1031,7 +1031,7 @@ EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
           "first_subtitle": "[충격/반전/사이다] 첫 자막",
           "paywall": false,
           "dopamine_moment": "이 화의 도파민 포인트",
-          "china_hook": "중국 특화 훅 (없으면 빈 문자열)"
+          "market_hook": "글로벌 시장 훅 (없으면 빈 문자열)"
         }}
       ]
     }}
@@ -1126,9 +1126,9 @@ def build_block_prompt(concept, arc_block, block_no,
         if lines:
             emotional_block = "\n[화별 감정 모드 — 최대치로 구현하라]\n" + "\n\n".join(lines)
 
-    china_block = ""
-    if market in ["중국", "글로벌"]:
-        china_block = f"\n[중국 집필 규칙 — {sweet_bitter}]\n- [자막] 태그 필수\n- {sweet_bitter} 리듬 적용\n- 大女主 법칙\n- 隐身 암시 1~2개\n"
+    global_block = ""
+    if market in ["글로벌", "중국"]:
+        global_block = f"\n[글로벌 집필 규칙 — {sweet_bitter}]\n- [자막] 태그 필수\n- {sweet_bitter} 리듬 적용\n- Underdog Rise 법칙\n- Hidden Identity 암시 1~2개\n"
 
     is_paywall = any(e.get("paywall") for e in episodes)
     paywall_note = "\n★★★ 과금 전환점(EP 16~20) — 역대급. 도파민 최대치. 절대 허술하게 쓰지 마라. ★★★\n" if is_paywall else ""
@@ -1163,7 +1163,7 @@ def build_block_prompt(concept, arc_block, block_no,
 [에피소드 계획]
 {ep_list}
 {emotional_block}
-{china_block}
+{global_block}
 
 {SYSTEM_PROMPT}
 
@@ -1220,9 +1220,9 @@ def build_convert_prompt(source_text, formula_key,
 
     preserve_block = f"\n[보존할 원작 요소]\n{preserve_elements}\n" if preserve_elements else ""
 
-    china_block = ""
-    if market in ["중국", "글로벌"]:
-        china_block = f"\n{CHINA_MARKET_RULES}\n[중국 특화]\n{formula.get('china_variant','')}\n"
+    global_block = ""
+    if market in ["글로벌", "중국"]:
+        global_block = f"\n{GLOBAL_MARKET_RULES}\n[글로벌 특화]\n{formula.get('global_variant','')}\n"
 
     return f"""[TASK] 기존 글 → 숏폼 변환
 
@@ -1232,7 +1232,7 @@ def build_convert_prompt(source_text, formula_key,
 [변환 설정]
 공식: {formula['name']} | 강도: {intensity['name']} | 화수: {total_eps}화
 시장: {market} | 수위: {rating_info['name']}
-{preserve_block}{china_block}
+{preserve_block}{global_block}
 [강도 규칙] {intensity['rules']}
 [수위] 허용: {' / '.join(rating_info['allowed'][:3])} | 금지: {' / '.join(rating_info['forbidden'][:2])}
 
@@ -1270,15 +1270,15 @@ def build_convert_prompt(source_text, formula_key,
     "logline": "주인공+목표+장애물+판돈 구조 2문장",
     "hook_ep1": "EP1 첫 프레임 — 스크롤 멈춤",
     "first_subtitle": "[충격/반전/사이다] 첫 자막",
-    "emotional_arc": "甜虐 감정 곡선",
-    "china_hook": "중국 관객 핵심 훅"
+    "emotional_arc": "Bittersweet 감정 곡선",
+    "market_hook": "글로벌 시장 핵심 훅"
   }},
   "episode_map": [
-    {{"ep_range":"EP 1~5","summary":"","emotion_modes":["굴욕","연민","분노","굴욕","공감"],"cliff_type":"Slap","sweet_bitter":"虐"}},
-    {{"ep_range":"EP 6~10","summary":"","emotion_modes":["유혹","스윗","질투","긴장","통쾌"],"cliff_type":"Reveal","sweet_bitter":"甜虐"}},
-    {{"ep_range":"EP 11~15","summary":"","emotion_modes":["극한","공포","배신감","절망","격분"],"cliff_type":"Reversal","sweet_bitter":"虐"}},
-    {{"ep_range":"EP 16~20","summary":"과금 전환 — 역대급 도파민","emotion_modes":["짜릿","카타르시스","격렬","짜릿","카타르시스"],"cliff_type":"Reversal","sweet_bitter":"虐"}},
-    {{"ep_range":"EP 21~{total_eps}","summary":"","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"甜虐교차"}}
+    {{"ep_range":"EP 1~5","summary":"","emotion_modes":["굴욕","연민","분노","굴욕","공감"],"cliff_type":"Slap","sweet_bitter":"Bitter"}},
+    {{"ep_range":"EP 6~10","summary":"","emotion_modes":["유혹","스윗","질투","긴장","통쾌"],"cliff_type":"Reveal","sweet_bitter":"Bittersweet"}},
+    {{"ep_range":"EP 11~15","summary":"","emotion_modes":["극한","공포","배신감","절망","격분"],"cliff_type":"Reversal","sweet_bitter":"Bitter"}},
+    {{"ep_range":"EP 16~20","summary":"과금 전환 — 역대급 도파민","emotion_modes":["짜릿","카타르시스","격렬","짜릿","카타르시스"],"cliff_type":"Reversal","sweet_bitter":"Bitter"}},
+    {{"ep_range":"EP 21~{total_eps}","summary":"","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"Bittersweet"}}
   ],
   "pilot_ep1": "EP1 대본 전문. [자막] 태그 포함. 클리프행어 필수. 도파민 최대치. 원고 포맷 엄수. 500~800자.",
   "pilot_ep2": "EP2 대본 전문. EP1 클리프행어 부분 해소+새 갈등+클리프행어. 원고 포맷 엄수."
