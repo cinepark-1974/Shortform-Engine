@@ -265,8 +265,8 @@ with tab_create:
         if market in ["중국","글로벌"]:
             st.markdown(
                 f'<div class="ri" style="border-left:3px solid #D32F2F">'
-                f'<div class="rl" style="color:#D32F2F">🇨🇳 중국 특화</div>'
-                f'<div style="font-size:.75rem">{formula.get("china_variant","")[:80]}...</div>'
+                f'<div class="rl" style="color:#D32F2F">🌐 Global Strategy</div>'
+                f'<div style="font-size:.75rem">{formula.get("global_variant","")[:80]}...</div>'
                 f'</div>', unsafe_allow_html=True
             )
 
@@ -428,13 +428,13 @@ with tab_create:
 
         # 과금 설계
         pd = c.get("paywall_design",{})
-        china_note = f'<div style="font-size:.75rem;color:#D32F2F;margin-top:.2rem">🇨🇳 {pd.get("ep16_china","")}</div>' if pd.get("ep16_china") else ""
+        market_note = f'<div style="font-size:.75rem;color:#D32F2F;margin-top:.2rem">🌐 {pd.get("ep16_market","")}</div>' if pd.get("ep16_market") else ""
         st.markdown(
             f'<div class="card" style="border-left:4px solid var(--y)">'
             f'<div class="cl">💰 과금 전환점 (EP 16~20)</div>'
             f'<div style="font-size:.95rem;font-weight:700">{pd.get("ep16_reversal","")}</div>'
             f'<div style="margin-top:.3rem">{d_badge(pd.get("ep16_dopamine",""))}</div>'
-            f'{china_note}'
+            f'{market_note}'
             f'<div style="font-size:.85rem;color:var(--dim);margin-top:.3rem">EP 20: {pd.get("ep20_cliffhanger","")}</div>'
             f'</div>', unsafe_allow_html=True
         )
@@ -890,9 +890,9 @@ with tab_convert:
                 if sc.get("first_subtitle"):
                     st.markdown(f'<div class="ri" style="border-left:3px solid var(--orange)"><div class="rl" style="color:var(--orange)">📱 첫 자막</div>{sc["first_subtitle"]}</div>', unsafe_allow_html=True)
             with col_sc2:
-                st.markdown(f'<div class="ri"><div class="rl">甜虐 감정 곡선</div>{sc.get("emotional_arc","")}</div>', unsafe_allow_html=True)
-                if sc.get("china_hook"):
-                    st.markdown(f'<div class="ri" style="border-left:3px solid #D32F2F"><div class="rl" style="color:#D32F2F">🇨🇳 중국 훅</div>{sc["china_hook"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="ri"><div class="rl">Bittersweet 감정 곡선</div>{sc.get("emotional_arc","")}</div>', unsafe_allow_html=True)
+                if sc.get("market_hook"):
+                    st.markdown(f'<div class="ri" style="border-left:3px solid #D32F2F"><div class="rl" style="color:#D32F2F">🌐 Market Hook</div>{sc["market_hook"]}</div>', unsafe_allow_html=True)
 
         # EP 맵
         ep_map = cr.get("episode_map",[])
@@ -962,7 +962,7 @@ with tab_convert:
                         "dopamine_design": dd_cv if dd_cv else {},
                         "secrets": [],
                         "paywall_design": {"ep16_reversal":cs.get("paywall_moment",""),
-                                           "ep16_dopamine":"","ep16_china":"","ep20_cliffhanger":""},
+                                           "ep16_dopamine":"","ep16_market":"","ep20_cliffhanger":""},
                         "location_design": {"main_locations":[],"sub_locations":[],
                                             "reversal_location":"","cliffhanger_location":"","romance_peak":""},
                         "hook_sentence": sc.get("hook_ep1",""),
