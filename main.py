@@ -18,6 +18,7 @@ MAX_TOKENS_CONCEPT = 6000
 MAX_TOKENS_ARC     = 16000
 MAX_TOKENS_BLOCK   = 12000
 MAX_TOKENS_CONVERT = 10000
+MAX_TOKENS_PILOT   = 8000
 
 # ─── Page Config ──────────────────────────────────
 st.set_page_config(
@@ -132,7 +133,7 @@ hr{border-color:var(--border)!important;}
 # ─── 세션 초기화 ──────────────────────────────────
 def init():
     d = {"step":0,"concept":None,"arc":None,"blocks":{},
-         "convert_result":None,"block_modes":{}}
+         "convert_result":None,"block_modes":{},"pilot_text":None}
     for k,v in d.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -198,6 +199,73 @@ CAT_COLOR = {
     "怒 분노계":"#D32F2F","哀 슬픔계":"#7B68EE","喜 기쁨계":"#FF69B4",
     "樂 쾌감계":"#2EC484","張 긴장계":"#FF8C00"
 }
+
+
+def highlight_script(text):
+    """숏폼 대본 텍스트를 지문/대사/자막/헤더별 색상 하이라이팅 HTML로 변환."""
+    import html as html_mod
+    lines = text.split("\n")
+    out = []
+    for line in lines:
+        raw = line.rstrip()
+        escaped = html_mod.escape(raw)
+
+        # 빈 줄
+        if not raw.strip():
+            out.append('<div style="height:.5rem"></div>')
+            continue
+
+        # EP 헤더 (━━━ 또는 EP 숫자 |)
+        if raw.startswith("━") or (re.match(r'^EP\s*\d+', raw) and "|" in raw):
+            out.append(
+                f'<div style="font-weight:900;font-size:.88rem;color:var(--navy);'
+                f'background:var(--lb);padding:6px 10px;border-radius:6px;margin:1rem 0 .4rem;'
+                f'border-left:4px solid var(--y);letter-spacing:.03em">{escaped}</div>'
+            )
+            continue
+
+        # [자막] 태그
+        if raw.strip().startswith("[자막]"):
+            out.append(
+                f'<div style="font-weight:800;font-size:.85rem;color:#E65100;'
+                f'background:#FFF3E0;padding:5px 10px;border-radius:6px;margin:.3rem 0;'
+                f'border-left:4px solid var(--orange)">{escaped}</div>'
+            )
+            continue
+
+        # 장소 헤더 (XX. 낮/밤/저녁/새벽.)
+        if re.match(r'^.+\.\s*(낮|밤|저녁|새벽|아침|오후|오전|심야)', raw):
+            out.append(
+                f'<div style="font-weight:700;font-size:.82rem;color:var(--dim);'
+                f'padding:3px 10px;border-bottom:1px solid var(--border);margin:.4rem 0 .2rem;'
+                f'letter-spacing:.05em">{escaped}</div>'
+            )
+            continue
+
+        # 대사 (인물명  대사 — 두 칸 이상 공백)
+        m = re.match(r'^(\S+)\s{2,}(.+)$', raw)
+        if m:
+            name = html_mod.escape(m.group(1))
+            dialogue = html_mod.escape(m.group(2))
+            out.append(
+                f'<div style="padding:3px 10px;margin:.15rem 0;line-height:1.8">'
+                f'<span style="font-weight:800;font-size:.82rem;color:var(--navy);'
+                f'min-width:50px;display:inline-block">{name}</span>'
+                f'<span style="font-size:.88rem;color:var(--t);margin-left:.3rem">{dialogue}</span>'
+                f'</div>'
+            )
+            continue
+
+        # 지문 (나머지)
+        out.append(
+            f'<div style="font-size:.85rem;color:#555;padding:2px 10px;margin:.1rem 0;'
+            f'line-height:1.8;font-style:italic">{escaped}</div>'
+        )
+
+    return (
+        '<div class="card" style="padding:1rem 0;border-left:4px solid var(--orange);'
+        'overflow-y:auto;max-height:600px">' + "\n".join(out) + '</div>'
+    )
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
@@ -719,7 +787,9 @@ with tab_create:
 
                 with st.expander(f"블록{bn} — {ep_r} [{ph}] {sw} {mode_disp} 🧠{dt}",
                                   expanded=(bn==max(st.session_state.blocks.keys()))):
-                    st.text_area("대본", bt, height=400, key=f"ta_{bn}")
+                    st.markdown(highlight_script(bt), unsafe_allow_html=True)
+                    with st.expander("📄 원본 텍스트 보기", expanded=False):
+                        st.text_area("대본", bt, height=300, key=f"ta_{bn}")
                     c1, c2 = st.columns(2)
                     with c1:
                         st.download_button(f"⬇️ 블록{bn} TXT", bt.encode("utf-8"),
@@ -773,7 +843,7 @@ with tab_create:
                     file_name=f"{title}_아크.csv", mime="text/csv", use_container_width=True)
         with col_dl3:
             if st.button("🔄 전체 초기화", use_container_width=True):
-                for k in ["step","concept","arc","blocks","convert_result","block_modes"]:
+                for k in ["step","concept","arc","blocks","convert_result","block_modes","pilot_text"]:
                     st.session_state[k] = 0 if k=="step" else {} if k in ["blocks","block_modes"] else None
                 st.rerun()
 
@@ -827,6 +897,7 @@ with tab_convert:
                 result = safe_json(raw)
                 if result:
                     st.session_state.convert_result = result
+                    st.session_state.pilot_text = None
                     st.rerun()
                 else:
                     st.error("변환 실패.")
@@ -914,35 +985,62 @@ with tab_convert:
                 )
             st.markdown(f'<div class="card">{ep_html}</div>', unsafe_allow_html=True)
 
-        # 파일럿 EP1 + EP2
-        p1 = cr.get("pilot_ep1","")
-        p2 = cr.get("pilot_ep2","")
-        if p1:
-            st.markdown("#### 🎬 파일럿 대본")
+        # 파일럿 EP1 + EP2 (2단계: Opus 집필)
+        st.markdown("#### 🎬 파일럿 대본")
+        if not st.session_state.pilot_text:
+            st.caption("분석 완료. 파일럿 대본을 Opus로 집필합니다.")
+            if st.button("✍️ 파일럿 EP1+EP2 집필 (Opus)", type="primary", use_container_width=True, key="btn_pilot"):
+                with st.spinner("Opus가 파일럿 EP1+EP2 집필 중... (30~50초)"):
+                    pilot_prompt = P.build_pilot_prompt(
+                        cr, source_text or "", cv_market, cv_rating)
+                    pilot_result = ""
+                    pilot_ph = st.empty()
+                    for chunk in call_stream(pilot_prompt, MAX_TOKENS_PILOT, model=MODEL_WRITE):
+                        pilot_result += chunk
+                        if len(pilot_result) % 200 < 10:
+                            pilot_ph.text_area("파일럿 집필 중...", pilot_result, height=300,
+                                                key=f"pilot_s_{len(pilot_result)}")
+                    st.session_state.pilot_text = pilot_result
+                    st.rerun()
+        else:
+            pilot_full = st.session_state.pilot_text
+            # EP1 / EP2 분리 시도
+            ep2_markers = ["━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nEP 2",
+                           "EP 2 |", "━━━━━━━━━━━\nEP 2"]
+            p1, p2 = pilot_full, ""
+            for marker in ep2_markers:
+                if marker in pilot_full:
+                    idx = pilot_full.index(marker)
+                    p1 = pilot_full[:idx].strip()
+                    p2 = pilot_full[idx:].strip()
+                    break
+
             t1, t2 = st.tabs(["EP 1", "EP 2"])
             with t1:
                 st.markdown(
-                    f'<div class="ep-block"><div class="ep-hd">EP 1 — 파일럿 (도파민 최대치)</div>'
-                    f'<pre style="white-space:pre-wrap;font-family:var(--body);font-size:.9rem;line-height:1.9">{p1}</pre>'
-                    f'</div>', unsafe_allow_html=True
+                    f'<div class="ep-block"><div class="ep-hd">EP 1 — 파일럿 (Opus · 도파민 최대치)</div>'
+                    f'{highlight_script(p1)}</div>', unsafe_allow_html=True
                 )
             with t2:
                 if p2:
                     st.markdown(
-                        f'<div class="ep-block"><div class="ep-hd">EP 2</div>'
-                        f'<pre style="white-space:pre-wrap;font-family:var(--body);font-size:.9rem;line-height:1.9">{p2}</pre>'
-                        f'</div>', unsafe_allow_html=True
+                        f'<div class="ep-block"><div class="ep-hd">EP 2 — (Opus)</div>'
+                        f'{highlight_script(p2)}</div>', unsafe_allow_html=True
                     )
                 else:
-                    st.caption("EP 2가 생성되지 않았습니다.")
+                    st.caption("EP 2가 분리되지 않았습니다. 전체 대본에서 확인하세요.")
 
-            col_dl1, col_dl2 = st.columns(2)
+            col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v2.1 — 변환 결과\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n[EP1]\n{p1}\n\n[EP2]\n{p2}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v2.1 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 st.download_button("⬇️ 파일럿 TXT", out.encode("utf-8"),
                     file_name=f"pilot_{sc.get('title','convert')}.txt",
                     mime="text/plain", use_container_width=True)
             with col_dl2:
+                if st.button("🔄 파일럿 다시 쓰기", use_container_width=True, key="re_pilot"):
+                    st.session_state.pilot_text = None
+                    st.rerun()
+            with col_dl3:
                 if st.button("이 컨셉으로 100화 만들기 →", use_container_width=True, key="cv2full"):
                     st.session_state.concept = {
                         "title": sc.get("title",""),
