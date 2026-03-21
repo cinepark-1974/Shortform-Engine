@@ -1,4 +1,4 @@
-# 👖 BLUE JEANS SHORTFORM ENGINE v1.0
+# 👖 BLUE JEANS SHORTFORM ENGINE v2.1
 
 > 막장 공식 + 1분 클리프행어 + 과금 전환점 설계  
 > **22클릭 → 100화 숏폼 드라마 시나리오 완성**
@@ -136,12 +136,30 @@ ANTHROPIC_API_KEY = "sk-ant-..."
 
 ---
 
+## v2.1 주요 변경사항
+
+| 항목 | v1.0 | v2.1 |
+|------|------|------|
+| 집필 모델 | Sonnet | **Opus (완성도 최우선)** |
+| 설계 모델 | Sonnet | Sonnet (속도·비용 효율) |
+| 도파민 설계 | 없음 | **D1~D9 도파민 시스템** |
+| 캐릭터 아키타입 | 기본 4종 | **도파민 캐릭터 + 관계 패턴** |
+| 장소 설계 | 기본 규칙 | **감정-장소 매핑 + 도파민 장소** |
+| 수위 등급 | 없음 | **3단계 (전체가/15세/19+)** |
+| 반복 방지 | 없음 | **4대 금지 + 자기검토 체크리스트** |
+| 로그라인 구조 | 단순 설명 | **주인공+목표+장애물+판돈** |
+| 중국 시장 | 기본 | **7가지 중국 특화 규칙** |
+| 원작 변환 강도 | 없음 | **3단계 (막장강/막장중/감성숏폼)** |
+
+---
+
 ## 기술 스택
 
 | 항목 | 값 |
 |------|------|
 | Frontend | Streamlit |
-| AI | Anthropic Claude (claude-sonnet-4-6) |
+| AI (집필) | claude-opus-4-6 — 블록 집필 (완성도 최우선) |
+| AI (설계) | claude-sonnet-4-6 — 컨셉·아크·변환 (속도·비용 효율) |
 | Python | 3.9+ |
 | 주요 라이브러리 | anthropic, streamlit, python-docx |
 
@@ -178,4 +196,4 @@ Creator Engine을 거치지 않고 공식 선택 → 즉시 생산합니다.
 
 ---
 
-*© 2026 BLUE JEANS PICTURES · Shortform Engine v1.0*
+*© 2026 BLUE JEANS PICTURES · Shortform Engine v2.1*
