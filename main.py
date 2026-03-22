@@ -152,7 +152,8 @@ hr{border-color:var(--border)!important;}
 # ─── 세션 초기화 ──────────────────────────────────
 def init():
     d = {"step":0,"concept":None,"arc":None,"blocks":{},
-         "convert_result":None,"block_modes":{},"pilot_text":None}
+         "convert_result":None,"block_modes":{},"pilot_text":None,
+         "producer_note":""}
     for k,v in d.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -306,6 +307,21 @@ st.markdown(
 )
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
+# ─── 프로듀서 노트 (전 단계 공통) ─────────────────
+with st.expander("🎬 프로듀서 노트 — 모든 단계에 반영됩니다", expanded=bool(st.session_state.producer_note)):
+    st.markdown(
+        '<div style="font-size:.75rem;color:var(--dim);margin-bottom:.5rem">'
+        '파일럿을 보고 느낀 키워드, 톤 지시, 강조할 설정 등을 적어주세요.<br>'
+        '여기에 쓴 내용은 컨셉 설정 · 아크 생성 · 블록 집필 · 파일럿 집필에 모두 주입됩니다.'
+        '</div>', unsafe_allow_html=True
+    )
+    pn = st.text_area("",
+        value=st.session_state.producer_note,
+        placeholder="예: 대사를 더 건조하게. 악역은 조용한 타입으로. 로맨스 비중 낮추고 복수 중심.\n예: '통장 잔고 1,200원' 같은 구체적 숫자 많이 쓸 것.\n예: 클리프행어에 소리 연출(발소리, 벨소리) 적극 활용.",
+        height=80, label_visibility="collapsed", key="pn_input")
+    if pn != st.session_state.producer_note:
+        st.session_state.producer_note = pn
+
 tab_create, tab_convert = st.tabs(["✍️ 새 숏폼 만들기", "🔄 기존 글 → 숏폼 변환"])
 
 
@@ -405,7 +421,8 @@ with tab_create:
                 raw = call_claude(
                     P.build_concept_prompt(formula_key, protagonist, villain,
                                            secrets or "자동 생성", season_question,
-                                           combined, market, rating),
+                                           combined, market, rating,
+                                           producer_note=st.session_state.producer_note),
                     MAX_TOKENS_CONCEPT
                 )
                 result = safe_json(raw)
@@ -576,7 +593,8 @@ with tab_create:
         if st.button("📊 100화 아크 + 도파민 마일스톤 생성", type="primary", use_container_width=True):
             total = st.session_state.concept.get("total_eps",100)
             with st.spinner("100화 아크 설계 중... (40~60초)"):
-                raw = call_claude(P.build_arc_prompt(st.session_state.concept, total), MAX_TOKENS_ARC)
+                raw = call_claude(P.build_arc_prompt(st.session_state.concept, total,
+                    producer_note=st.session_state.producer_note), MAX_TOKENS_ARC)
                 result = safe_json(raw)
                 if result:
                     st.session_state.arc = result
@@ -788,7 +806,8 @@ with tab_create:
                         with st.spinner(f"블록{bn} {mode_disp} 집필 중... (Opus)"):
                             pt = P.build_block_prompt(
                                 st.session_state.concept, blk, bn, prev_s,
-                                emotional_modes=default_modes)
+                                emotional_modes=default_modes,
+                                producer_note=st.session_state.producer_note)
                             rt = ""
                             ph = st.empty()
                             for chunk in call_stream(pt, MAX_TOKENS_BLOCK, model=MODEL_WRITE):
@@ -919,7 +938,8 @@ with tab_convert:
             with st.spinner("원본 분석 + 도파민 설계 + 숏폼 변환 중... (40~60초)"):
                 raw = call_claude(
                     P.build_convert_prompt(source_text, cv_formula, cv_eps,
-                                           cv_intensity, preserve_elements, cv_market, cv_rating),
+                                           cv_intensity, preserve_elements, cv_market, cv_rating,
+                                           producer_note=st.session_state.producer_note),
                     MAX_TOKENS_CONVERT
                 )
                 result = safe_json(raw)
@@ -1020,7 +1040,8 @@ with tab_convert:
             if st.button("✍️ 파일럿 EP1+EP2 집필 (Opus)", type="primary", use_container_width=True, key="btn_pilot"):
                 with st.spinner("Opus가 파일럿 EP1+EP2 집필 중... (30~50초)"):
                     pilot_prompt = P.build_pilot_prompt(
-                        cr, source_text or "", cv_market, cv_rating)
+                        cr, source_text or "", cv_market, cv_rating,
+                        producer_note=st.session_state.producer_note)
                     pilot_result = ""
                     pilot_ph = st.empty()
                     for chunk in call_stream(pilot_prompt, MAX_TOKENS_PILOT, model=MODEL_WRITE):
