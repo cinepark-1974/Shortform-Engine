@@ -200,8 +200,12 @@ def call_claude(prompt, max_tokens, model=None, system=None):
     }
     if system:
         kwargs["system"] = system
-    r = c.messages.create(**kwargs)
-    return "".join(b.text for b in r.content if hasattr(b,"text")).strip()
+    try:
+        r = c.messages.create(**kwargs)
+        return "".join(b.text for b in r.content if hasattr(b,"text")).strip()
+    except Exception as e:
+        st.error(f"API 호출 실패: {type(e).__name__}: {str(e)[:200]}")
+        return ""
 
 def call_stream(prompt, max_tokens, model=None):
     c = get_client()
@@ -252,19 +256,19 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
     for chunk in range(1, total_chunks + 1):
         start_ep = (chunk - 1) * 25 + 1
         end_ep = min(chunk * 25, total_eps)
-        progress_placeholder.info(f"🔄 아크 청크 {chunk}/{total_chunks} 생성 중... (EP{start_ep}~{end_ep})")
 
         result = None
         raw = ""
         for attempt in range(2):  # 최대 2회 시도
-            raw = call_claude(
-                P.build_arc_prompt(concept, total_eps,
-                    producer_note=producer_note,
-                    chunk=chunk, total_chunks=total_chunks,
-                    prev_summary=prev_summary),
-                MAX_TOKENS_ARC,
-                system="You are a JSON generator. Output ONLY valid JSON. No markdown, no explanation, no text before or after the JSON object."
-            )
+            with st.spinner(f"🔄 아크 청크 {chunk}/{total_chunks} 생성 중... (EP{start_ep}~{end_ep})"):
+                raw = call_claude(
+                    P.build_arc_prompt(concept, total_eps,
+                        producer_note=producer_note,
+                        chunk=chunk, total_chunks=total_chunks,
+                        prev_summary=prev_summary),
+                    MAX_TOKENS_ARC,
+                    system="You are a JSON generator. Output ONLY valid JSON. No markdown, no explanation, no text before or after the JSON object."
+                )
             result = safe_json(raw)
             if result and result.get("blocks"):
                 break
@@ -272,8 +276,9 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
                 progress_placeholder.warning(f"청크 {chunk} 파싱 실패 — 자동 재시도 중...")
 
         if not result or not result.get("blocks"):
-            progress_placeholder.error(f"청크 {chunk} 생성 실패 (2회 시도). Raw 응답을 확인하세요.")
-            st.expander(f"🔍 청크 {chunk} Raw 응답").text(raw[:3000] if raw else "(빈 응답)")
+            st.error(f"청크 {chunk} 생성 실패 (2회 시도).")
+            with st.expander(f"🔍 청크 {chunk} Raw 응답 (디버깅용)", expanded=True):
+                st.code(raw[:3000] if raw else "(빈 응답 — API 호출 자체가 실패했을 수 있습니다)")
             return None
 
         all_blocks.extend(result.get("blocks", []))
@@ -388,7 +393,7 @@ with st.expander("🎬 프로듀서 노트 — 모든 단계에 반영됩니다"
         '여기에 쓴 내용은 컨셉 설정 · 아크 생성 · 블록 집필 · 파일럿 집필에 모두 주입됩니다.'
         '</div>', unsafe_allow_html=True
     )
-    pn = st.text_area("",
+    pn = st.text_area("프로듀서 노트",
         value=st.session_state.producer_note,
         placeholder="예: 대사를 더 건조하게. 악역은 조용한 타입으로. 로맨스 비중 낮추고 복수 중심.\n예: '통장 잔고 1,200원' 같은 구체적 숫자 많이 쓸 것.\n예: 클리프행어에 소리 연출(발소리, 벨소리) 적극 활용.",
         height=80, label_visibility="collapsed", key="pn_input")
@@ -476,7 +481,7 @@ with tab_create:
         '<div style="font-size:.75rem;color:var(--dim)">시어머니·시누이·직장동료 등 감초를 미리 알려주면 AI가 더 정교하게 설계합니다.</div>'
         '</div>', unsafe_allow_html=True
     )
-    supporting_hint = st.text_area("",
+    supporting_hint = st.text_area("감초 캐릭터 힌트",
         placeholder="예: 시어머니(분노유발) — 냉정하고 계산적\n예: 직장동료 지수(정보투하) — 밝고 수다스러움\n예: 친구 미래(감정증폭) — 직설적, 주인공 편",
         height=70, label_visibility="collapsed")
 
