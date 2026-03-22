@@ -15,7 +15,7 @@ MODEL_WRITE = P.MODEL_WRITE   # claude-opus-4-6  — 블록 집필
 MODEL_PLAN  = P.MODEL_PLAN    # claude-sonnet-4-6 — 컨셉·아크·변환
 
 MAX_TOKENS_CONCEPT = 6000
-MAX_TOKENS_ARC     = 16000
+MAX_TOKENS_ARC     = 8000   # 청크당 5블록(25화) — 4회 호출
 MAX_TOKENS_BLOCK   = 12000
 MAX_TOKENS_CONVERT = 10000
 MAX_TOKENS_PILOT   = 8000
@@ -219,6 +219,48 @@ CAT_COLOR = {
     "怒 분노계":"#D32F2F","哀 슬픔계":"#7B68EE","喜 기쁨계":"#FF69B4",
     "樂 쾌감계":"#2EC484","張 긴장계":"#FF8C00"
 }
+
+
+def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder):
+    """4회 청크 호출로 100화 아크를 생성하고 병합한다."""
+    total_chunks = 4
+    all_blocks = []
+    all_milestones = []
+    all_summaries = []
+    prev_summary = ""
+
+    for chunk in range(1, total_chunks + 1):
+        start_ep = (chunk - 1) * 25 + 1
+        end_ep = min(chunk * 25, total_eps)
+        progress_placeholder.info(f"🔄 아크 청크 {chunk}/{total_chunks} 생성 중... (EP{start_ep}~{end_ep})")
+
+        raw = call_claude(
+            P.build_arc_prompt(concept, total_eps,
+                producer_note=producer_note,
+                chunk=chunk, total_chunks=total_chunks,
+                prev_summary=prev_summary),
+            MAX_TOKENS_ARC
+        )
+        result = safe_json(raw)
+        if not result:
+            progress_placeholder.error(f"청크 {chunk} 생성 실패. 다시 시도해 주세요.")
+            return None
+
+        all_blocks.extend(result.get("blocks", []))
+        all_milestones.extend(result.get("dopamine_milestones", []))
+        chunk_summary = result.get("chunk_summary", "")
+        all_summaries.append(f"[EP{start_ep}~{end_ep}] {chunk_summary}")
+        prev_summary = "\n".join(all_summaries)
+
+    # 병합
+    merged = {
+        "arc_summary": " → ".join(all_summaries),
+        "dopamine_milestones": all_milestones,
+        "blocks": all_blocks,
+        "paywall_eps": [16, 17, 18, 19, 20],
+    }
+    progress_placeholder.success(f"✅ 아크 생성 완료 — {len(all_blocks)}블록 · {len(all_milestones)}개 도파민 마일스톤")
+    return merged
 
 
 def highlight_script(text):
@@ -590,19 +632,16 @@ with tab_create:
         st.markdown("---")
         st.markdown('<div class="section-header">📊 100화 아크 설계 <span class="en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
 
-        if st.button("📊 100화 아크 + 도파민 마일스톤 생성", type="primary", use_container_width=True):
+        if st.button("📊 100화 아크 + 도파민 마일스톤 생성 (4회 분할)", type="primary", use_container_width=True):
             total = st.session_state.concept.get("total_eps",100)
-            with st.spinner("100화 아크 설계 중... (40~60초)"):
-                raw = call_claude(P.build_arc_prompt(st.session_state.concept, total,
-                    producer_note=st.session_state.producer_note), MAX_TOKENS_ARC)
-                result = safe_json(raw)
-                if result:
-                    st.session_state.arc = result
-                    st.session_state.step = 2
-                    st.rerun()
-                else:
-                    st.error("아크 생성 실패.")
-                    with st.expander("Raw"): st.text(raw[:2000])
+            arc_progress = st.empty()
+            result = generate_arc_chunks(
+                st.session_state.concept, total,
+                st.session_state.producer_note, arc_progress)
+            if result:
+                st.session_state.arc = result
+                st.session_state.step = 2
+                st.rerun()
 
         if st.session_state.arc:
             arc = st.session_state.arc
@@ -1128,19 +1167,16 @@ with tab_convert:
                 f'{st.session_state.concept.get("title","")} — {st.session_state.concept.get("logline","")}</div>',
                 unsafe_allow_html=True
             )
-            if st.button("📊 100화 아크 + 도파민 마일스톤 생성", type="primary", use_container_width=True, key="cv_arc"):
+            if st.button("📊 100화 아크 + 도파민 마일스톤 생성 (4회 분할)", type="primary", use_container_width=True, key="cv_arc"):
                 total = st.session_state.concept.get("total_eps",100)
-                with st.spinner("100화 아크 설계 중... (40~60초)"):
-                    raw = call_claude(P.build_arc_prompt(st.session_state.concept, total,
-                        producer_note=st.session_state.producer_note), MAX_TOKENS_ARC)
-                    result = safe_json(raw)
-                    if result:
-                        st.session_state.arc = result
-                        st.session_state.step = 2
-                        st.rerun()
-                    else:
-                        st.error("아크 생성 실패.")
-                        with st.expander("Raw"): st.text(raw[:2000])
+                arc_progress = st.empty()
+                result = generate_arc_chunks(
+                    st.session_state.concept, total,
+                    st.session_state.producer_note, arc_progress)
+                if result:
+                    st.session_state.arc = result
+                    st.session_state.step = 2
+                    st.rerun()
 
         if st.session_state.arc:
             st.markdown("---")
