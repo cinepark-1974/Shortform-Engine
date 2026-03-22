@@ -1114,7 +1114,11 @@ def build_concept_prompt(formula_key, protagonist, villain,
 #  STEP 2: 100화 아크 설계
 # ═══════════════════════════════════════════════════════════════
 
-def build_arc_prompt(concept, total_eps=100, producer_note=""):
+def build_arc_prompt(concept, total_eps=100, producer_note="",
+                     chunk=1, total_chunks=4, prev_summary=""):
+    """25화씩 4회 호출로 100화 아크를 생성한다.
+    chunk=1: EP1~25 (블록1~5), chunk=2: EP26~50 (블록6~10), ...
+    """
     formula_key = concept.get("formula", "재벌복수")
     formula = MAKJANG_FORMULAS.get(formula_key, {})
     market = concept.get("market", "한국")
@@ -1125,7 +1129,29 @@ def build_arc_prompt(concept, total_eps=100, producer_note=""):
     if market in ["글로벌", "중국"]:
         global_block = "[글로벌 아크 추가]\n- [충격/반전/사이다] 자막 훅 명시\n- Hidden Identity 드러남: 과금 직전\n- Bittersweet 리듬: 블록별 명시\n- Secret Child 클리프행어: EP 15~17 권장\n"
 
-    return f"""[TASK] {total_eps}화 시즌 아크 설계
+    # 청크별 EP 범위 / 블록 범위 / 국면
+    blocks_per_chunk = 5
+    start_block = (chunk - 1) * blocks_per_chunk + 1
+    end_block = chunk * blocks_per_chunk
+    start_ep = (start_block - 1) * 5 + 1
+    end_ep = min(end_block * 5, total_eps)
+
+    chunk_phases = {
+        1: "도입+갈등 구축 (EP1~25). 주인공 낙차 최대화 → 악역 구체적 나쁜 짓 → 과금 관문(EP15~16) 대반전.",
+        2: "중반 전개 (EP26~50). 역전 시작 → 로맨스/삼각관계 → 새 비밀 등장 → 감정 시소 본격화.",
+        3: "클라이맥스 구축 (EP51~75). 최대 위기 → 배신 확인 → 숨겨진 정체 드러남 → All Is Lost.",
+        4: "최종 역전+결말 (EP76~100). 완전한 역전 → 악역 몰락 → 해소 + 시즌2 떡밥."
+    }
+
+    prev_block = ""
+    if prev_summary:
+        prev_block = f"\n[이전 청크 요약 — 이어서 설계할 것]\n{prev_summary}\n"
+
+    paywall_note = ""
+    if chunk == 1:
+        paywall_note = "\n★ EP15~16은 과금 전환점. 이 청크에서 가장 강한 도파민 장면을 여기에 배치.\n"
+
+    return f"""[TASK] {total_eps}화 시즌 아크 — 청크 {chunk}/{total_chunks} (EP{start_ep}~{end_ep}, 블록{start_block}~{end_block})
 
 [컨셉]
 제목: {concept.get('title','')} | 시장: {market}
@@ -1136,7 +1162,10 @@ def build_arc_prompt(concept, total_eps=100, producer_note=""):
 중독 루프: {dopamine.get('addiction_loop','')}
 시소 패턴: {dopamine.get('seesaw_pattern','')}
 EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
-{global_block}{pn_block}
+{global_block}{pn_block}{prev_block}{paywall_note}
+[이 청크의 국면]
+{chunk_phases.get(chunk, '')}
+
 [아크 힌트]
 {formula.get('arc_hint','')}
 
@@ -1146,24 +1175,25 @@ EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
 - 매 5화 블록마다 D8 체크리스트 항목 1개 이상
 - 굴욕이 먼저 쌓여야 역전의 도파민이 크다
 - 통쾌함은 예측 불가 타이밍에 (간헐적 강화)
-- EP 16~20: 가장 강한 도파민 장면들을 여기에 집중
+- 클리프행어 유형 변주: 직전 블록과 같은 유형 연속 금지
 
-[JSON 스키마]
+[JSON 스키마 — 이 청크의 5블록(25화)만 출력]
 {{
-  "arc_summary": "전체 {total_eps}화 흐름+도파민 설계 3~5문장",
+  "chunk": {chunk},
+  "chunk_summary": "이 청크 25화 흐름 요약 2~3문장 (다음 청크에 전달용)",
   "dopamine_milestones": [
     {{"ep":0,"type":"D1~D9","event":"이 화에서 터지는 도파민 장면"}}
   ],
   "blocks": [
     {{
-      "block_no": 1, "ep_range": "EP 1~5",
-      "phase": "도입", "theme": "핵심 감정/사건",
+      "block_no": {start_block}, "ep_range": "EP {start_ep}~{start_ep+4}",
+      "phase": "국면", "theme": "핵심 감정/사건",
       "sweet_bitter": "Sweet|Bitter|Bittersweet",
       "dopamine_target": "이 블록 주력 도파민",
-      "recommended_emotion_modes": ["굴욕","연민","분노","굴욕","공감"],
+      "recommended_emotion_modes": ["감정1","감정2","감정3","감정4","감정5"],
       "episodes": [
         {{
-          "ep": 1,
+          "ep": {start_ep},
           "summary": "핵심 사건 1줄 (30자 이내)",
           "emotion_mode": "25가지 감정 중 하나",
           "cliffhanger_type": "Slap|Reveal|Reversal|Arrival|Choice|Threat|Tears",
@@ -1171,23 +1201,20 @@ EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
           "first_subtitle": "[충격/반전/사이다] 첫 자막",
           "paywall": false,
           "dopamine_moment": "이 화의 도파민 포인트",
-          "market_hook": "글로벌 시장 훅 (없으면 빈 문자열)"
+          "market_hook": ""
         }}
       ]
     }}
-  ],
-  "paywall_eps": [16,17,18,19,20],
-  "hidden_reveal_ep": 0,
-  "new_character_eps": [],
-  "villain_downfall_eps": [],
-  "secret_schedule": [{{"ep":0,"secret":"","dopamine_type":""}}],
-  "season2_hook": "EP100 시즌2 떡밥"
+  ]
 }}
 
-- blocks 정확히 20개 (5화씩)
+- blocks 정확히 5개 (블록{start_block}~{end_block})
 - 각 block episodes 정확히 5개
+- block_no는 {start_block}부터 {end_block}까지
+- ep 번호는 {start_ep}부터 {end_ep}까지
 - emotion_mode은 EMOTIONAL_MODES의 25가지 중 하나
-- dopamine_milestones: 역전/폭로/각성 등 주요 장면 10~15개
+- dopamine_milestones: 이 청크의 주요 장면 3~5개
+- chunk_summary: 다음 청크가 이어서 설계할 수 있도록 핵심 흐름 요약
 - {JSON_RULES.strip()}"""
 
 
