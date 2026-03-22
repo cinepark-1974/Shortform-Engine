@@ -1506,8 +1506,13 @@ def build_convert_prompt(source_text, formula_key,
     {{"ep_range":"EP 1~5","summary":"","emotion_modes":["굴욕","연민","분노","굴욕","공감"],"cliff_type":"Slap","sweet_bitter":"Bitter"}},
     {{"ep_range":"EP 6~10","summary":"","emotion_modes":["유혹","스윗","질투","긴장","통쾌"],"cliff_type":"Reveal","sweet_bitter":"Bittersweet"}},
     {{"ep_range":"EP 11~15","summary":"","emotion_modes":["극한","공포","배신감","절망","격분"],"cliff_type":"Reversal","sweet_bitter":"Bitter"}},
-    {{"ep_range":"EP 16~20","summary":"과금 전환 — 역대급 도파민","emotion_modes":["짜릿","카타르시스","격렬","짜릿","카타르시스"],"cliff_type":"Reversal","sweet_bitter":"Bitter"}},
-    {{"ep_range":"EP 21~{total_eps}","summary":"","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"Bittersweet"}}
+    {{"ep_range":"EP 16~20","summary":"과금 전환 — 역대급 도파민","emotion_modes":["짜릿","카타르시스","격분","짜릿","카타르시스"],"cliff_type":"Reversal","sweet_bitter":"Bitter"}},
+    {{"ep_range":"EP 21~25","summary":"과금 후 보상 — 첫 역전","emotion_modes":["통쾌","짜릿","설렘","유혹","긴장"],"cliff_type":"Arrival","sweet_bitter":"Bittersweet"}},
+    {{"ep_range":"EP 26~35","summary":"중반 — 로맨스+삼각관계+새 비밀","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"Bittersweet"}},
+    {{"ep_range":"EP 36~50","summary":"감정 시소 본격화","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"Bittersweet"}},
+    {{"ep_range":"EP 51~65","summary":"클라이맥스 — 배신+정체 드러남","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"Bitter"}},
+    {{"ep_range":"EP 66~80","summary":"All Is Lost → 역전 시작","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"Bitter"}},
+    {{"ep_range":"EP 81~{total_eps}","summary":"최종 역전+결말+시즌2 떡밥","emotion_modes":["순환"],"cliff_type":"순환","sweet_bitter":"Bittersweet"}}
   ]
 }}
 
