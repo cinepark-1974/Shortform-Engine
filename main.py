@@ -169,18 +169,38 @@ def get_client():
     return anthropic.Anthropic(api_key=k)
 
 def safe_json(text):
+    """Claude 응답에서 JSON을 견고하게 추출한다."""
     if not text: return None
+    # 1차: 그대로 파싱
     try: return json.loads(text)
-    except:
-        try: return json.loads(re.sub(r'```json\s*|```\s*','',text).strip())
-        except: return None
+    except: pass
+    # 2차: 코드블록 제거
+    cleaned = re.sub(r'```json\s*|```\s*', '', text).strip()
+    try: return json.loads(cleaned)
+    except: pass
+    # 3차: 첫 { ~ 마지막 } 범위 추출
+    start = cleaned.find('{')
+    end = cleaned.rfind('}')
+    if start >= 0 and end > start:
+        block = cleaned[start:end+1]
+        try: return json.loads(block)
+        except: pass
+        # 4차: 후행 쉼표 제거
+        block = re.sub(r',\s*([}\]])', r'\1', block)
+        try: return json.loads(block)
+        except: pass
+    return None
 
-def call_claude(prompt, max_tokens, model=None):
+def call_claude(prompt, max_tokens, model=None, system=None):
     c = get_client()
-    r = c.messages.create(
-        model=model or MODEL_PLAN, max_tokens=max_tokens,
-        messages=[{"role":"user","content":prompt}]
-    )
+    kwargs = {
+        "model": model or MODEL_PLAN,
+        "max_tokens": max_tokens,
+        "messages": [{"role":"user","content":prompt}]
+    }
+    if system:
+        kwargs["system"] = system
+    r = c.messages.create(**kwargs)
     return "".join(b.text for b in r.content if hasattr(b,"text")).strip()
 
 def call_stream(prompt, max_tokens, model=None):
@@ -222,7 +242,7 @@ CAT_COLOR = {
 
 
 def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder):
-    """4회 청크 호출로 100화 아크를 생성하고 병합한다."""
+    """4회 청크 호출로 100화 아크를 생성하고 병합한다. 실패 시 1회 자동 재시도."""
     total_chunks = 4
     all_blocks = []
     all_milestones = []
@@ -234,16 +254,26 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         end_ep = min(chunk * 25, total_eps)
         progress_placeholder.info(f"🔄 아크 청크 {chunk}/{total_chunks} 생성 중... (EP{start_ep}~{end_ep})")
 
-        raw = call_claude(
-            P.build_arc_prompt(concept, total_eps,
-                producer_note=producer_note,
-                chunk=chunk, total_chunks=total_chunks,
-                prev_summary=prev_summary),
-            MAX_TOKENS_ARC
-        )
-        result = safe_json(raw)
-        if not result:
-            progress_placeholder.error(f"청크 {chunk} 생성 실패. 다시 시도해 주세요.")
+        result = None
+        raw = ""
+        for attempt in range(2):  # 최대 2회 시도
+            raw = call_claude(
+                P.build_arc_prompt(concept, total_eps,
+                    producer_note=producer_note,
+                    chunk=chunk, total_chunks=total_chunks,
+                    prev_summary=prev_summary),
+                MAX_TOKENS_ARC,
+                system="You are a JSON generator. Output ONLY valid JSON. No markdown, no explanation, no text before or after the JSON object."
+            )
+            result = safe_json(raw)
+            if result and result.get("blocks"):
+                break
+            if attempt == 0:
+                progress_placeholder.warning(f"청크 {chunk} 파싱 실패 — 자동 재시도 중...")
+
+        if not result or not result.get("blocks"):
+            progress_placeholder.error(f"청크 {chunk} 생성 실패 (2회 시도). Raw 응답을 확인하세요.")
+            st.expander(f"🔍 청크 {chunk} Raw 응답").text(raw[:3000] if raw else "(빈 응답)")
             return None
 
         all_blocks.extend(result.get("blocks", []))
@@ -251,6 +281,7 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         chunk_summary = result.get("chunk_summary", "")
         all_summaries.append(f"[EP{start_ep}~{end_ep}] {chunk_summary}")
         prev_summary = "\n".join(all_summaries)
+        progress_placeholder.success(f"✅ 청크 {chunk}/{total_chunks} 완료 — {len(result.get('blocks',[]))}블록")
 
     # 병합
     merged = {
