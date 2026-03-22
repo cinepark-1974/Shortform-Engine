@@ -1117,7 +1117,34 @@ with tab_convert:
                         "total_eps": 100
                     }
                     st.session_state.step = 1
-                    st.success("컨셉 설정 완료. STEP 2 탭에서 아크를 생성하세요.")
+                    st.rerun()
+
+        # 변환 탭 내 아크 생성 (컨셉이 세팅된 후)
+        if st.session_state.concept and st.session_state.step >= 1 and not st.session_state.arc:
+            st.markdown("---")
+            st.markdown('<div class="section-header">📊 100화 아크 설계 <span class="en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="callout"><div class="cl">컨셉 확인</div>'
+                f'{st.session_state.concept.get("title","")} — {st.session_state.concept.get("logline","")}</div>',
+                unsafe_allow_html=True
+            )
+            if st.button("📊 100화 아크 + 도파민 마일스톤 생성", type="primary", use_container_width=True, key="cv_arc"):
+                total = st.session_state.concept.get("total_eps",100)
+                with st.spinner("100화 아크 설계 중... (40~60초)"):
+                    raw = call_claude(P.build_arc_prompt(st.session_state.concept, total,
+                        producer_note=st.session_state.producer_note), MAX_TOKENS_ARC)
+                    result = safe_json(raw)
+                    if result:
+                        st.session_state.arc = result
+                        st.session_state.step = 2
+                        st.rerun()
+                    else:
+                        st.error("아크 생성 실패.")
+                        with st.expander("Raw"): st.text(raw[:2000])
+
+        if st.session_state.arc:
+            st.markdown("---")
+            st.info("✅ 아크 생성 완료. **✍️ 새 숏폼 만들기** 탭에서 STEP 3 블록 집필을 진행하세요.")
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
