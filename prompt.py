@@ -982,10 +982,12 @@ JSON_RULES = """[출력 규칙]
 
 def build_concept_prompt(formula_key, protagonist, villain,
                           secrets, season_question,
-                          custom_idea="", market="한국", rating="teen"):
+                          custom_idea="", market="한국", rating="teen",
+                          producer_note=""):
     formula = MAKJANG_FORMULAS.get(formula_key, {})
     rating_info = CONTENT_RATING_RULES.get(rating, CONTENT_RATING_RULES["teen"])
     custom_block = f"\n[커스텀/감초 힌트]\n{custom_idea}" if custom_idea else ""
+    pn_block = f"\n[프로듀서 노트 — 반드시 반영]\n{producer_note}\n" if producer_note.strip() else ""
 
     global_block = ""
     if market in ["글로벌", "중국"]:
@@ -1000,7 +1002,7 @@ def build_concept_prompt(formula_key, protagonist, villain,
 타겟: {formula.get('target', '')} | 시장: {market}
 도파민 키: {formula.get('dopamine_key', '')}
 {custom_block}
-{global_block}
+{global_block}{pn_block}
 [수위 등급: {rating_info['name']}]
 허용: {' / '.join(rating_info['allowed'])}
 금지: {' / '.join(rating_info['forbidden'])}
@@ -1112,11 +1114,12 @@ def build_concept_prompt(formula_key, protagonist, villain,
 #  STEP 2: 100화 아크 설계
 # ═══════════════════════════════════════════════════════════════
 
-def build_arc_prompt(concept, total_eps=100):
+def build_arc_prompt(concept, total_eps=100, producer_note=""):
     formula_key = concept.get("formula", "재벌복수")
     formula = MAKJANG_FORMULAS.get(formula_key, {})
     market = concept.get("market", "한국")
     dopamine = concept.get("dopamine_design", {})
+    pn_block = f"\n[프로듀서 노트 — 반드시 반영]\n{producer_note}\n" if producer_note.strip() else ""
 
     global_block = ""
     if market in ["글로벌", "중국"]:
@@ -1133,7 +1136,7 @@ def build_arc_prompt(concept, total_eps=100):
 중독 루프: {dopamine.get('addiction_loop','')}
 시소 패턴: {dopamine.get('seesaw_pattern','')}
 EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
-{global_block}
+{global_block}{pn_block}
 [아크 힌트]
 {formula.get('arc_hint','')}
 
@@ -1193,7 +1196,8 @@ EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
 # ═══════════════════════════════════════════════════════════════
 
 def build_block_prompt(concept, arc_block, block_no,
-                        prev_block_summary="", emotional_modes=None):
+                        prev_block_summary="", emotional_modes=None,
+                        producer_note=""):
     ep_range = arc_block.get("ep_range", f"EP {(block_no-1)*5+1}~{block_no*5}")
     episodes = arc_block.get("episodes", [])
     phase = arc_block.get("phase", "")
@@ -1301,8 +1305,10 @@ EP15~16 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는 순간에 끊
     else:
         volume_note = "\n[일반 분량] 1화 = 500~800자. 사건 1~2개. 1~2씬.\n"
 
+    pn_block = f"\n[프로듀서 노트 — 반드시 반영]\n{producer_note}\n" if producer_note.strip() else ""
+
     return f"""[TASK] {ep_range} 대본 집필 — 블록 {block_no}
-{volume_note}
+{volume_note}{pn_block}
 [작품] {concept.get('title','')} | 시장: {market} | 수위: {rating_info['name']}
 [국면] {phase} / {theme} / {sweet_bitter} / 주력도파민: {dopamine_target}
 [루프] {dopamine.get('addiction_loop','')} | [시소] {dopamine.get('seesaw_pattern','')}
@@ -1391,12 +1397,14 @@ S#은 EP마다 S#1부터 리셋. 1화 1~3씬. 장소/시간 전환 = 새 씬.
 
 def build_convert_prompt(source_text, formula_key,
                           total_eps=30, intensity_key="감성_숏폼",
-                          preserve_elements="", market="한국", rating="teen"):
+                          preserve_elements="", market="한국", rating="teen",
+                          producer_note=""):
     formula = MAKJANG_FORMULAS.get(formula_key, MAKJANG_FORMULAS["감성숏폼"])
     intensity = CONVERT_INTENSITY.get(intensity_key, CONVERT_INTENSITY["감성_숏폼"])
     rating_info = CONTENT_RATING_RULES.get(rating, CONTENT_RATING_RULES["teen"])
 
     preserve_block = f"\n[보존할 원작 요소]\n{preserve_elements}\n" if preserve_elements else ""
+    pn_block = f"\n[프로듀서 노트 — 반드시 반영]\n{producer_note}\n" if producer_note.strip() else ""
 
     global_block = ""
     if market in ["글로벌", "중국"]:
@@ -1410,7 +1418,7 @@ def build_convert_prompt(source_text, formula_key,
 [변환 설정]
 공식: {formula['name']} | 강도: {intensity['name']} | 화수: {total_eps}화
 시장: {market} | 수위: {rating_info['name']}
-{preserve_block}{global_block}
+{preserve_block}{global_block}{pn_block}
 [강도 규칙] {intensity['rules']}
 [수위] 허용: {' / '.join(rating_info['allowed'][:3])} | 금지: {' / '.join(rating_info['forbidden'][:2])}
 
@@ -1469,9 +1477,11 @@ def build_convert_prompt(source_text, formula_key,
 #  파일럿 집필 (2단계 — Opus 전용)
 # ═══════════════════════════════════════════════════════════════
 
-def build_pilot_prompt(convert_result, source_text="", market="한국", rating="teen"):
+def build_pilot_prompt(convert_result, source_text="", market="한국", rating="teen",
+                       producer_note=""):
     """변환 분석(1단계) 결과를 받아 EP1+EP2 파일럿 대본을 Opus로 집필한다."""
     rating_info = CONTENT_RATING_RULES.get(rating, CONTENT_RATING_RULES["teen"])
+    pn_block = f"\n[프로듀서 노트 — 반드시 반영]\n{producer_note}\n" if producer_note.strip() else ""
 
     # 변환 결과에서 핵심 정보 추출
     oa = convert_result.get("original_analysis", {})
@@ -1500,7 +1510,7 @@ def build_pilot_prompt(convert_result, source_text="", market="한국", rating="
 제목: {sc.get('title', '')}
 로그라인: {sc.get('logline', '')}
 시장: {market} | 수위: {rating_info['name']}
-
+{pn_block}
 [원본 핵심 갈등]
 {oa.get('core_conflict', '')}
 
