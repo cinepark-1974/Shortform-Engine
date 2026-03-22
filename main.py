@@ -67,11 +67,11 @@ section[data-testid="stSidebar"]{display:none;}
     background:var(--card)!important;border-radius:8px!important;
     font-family:var(--body)!important;font-weight:600!important;
     font-size:.85rem!important;padding:.5rem 1.2rem!important;transition:all .2s;}
-.stButton>button:hover{border-color:var(--navy)!important;}
+.stButton>button:hover{border-color:var(--navy)!important;box-shadow:0 2px 8px rgba(25,25,112,.08)!important;}
 .stButton>button[kind="primary"]{
     background:var(--y)!important;color:var(--navy)!important;
     border-color:var(--y)!important;font-weight:700!important;}
-.stButton>button[kind="primary"]:hover{background:#E8B800!important;}
+.stButton>button[kind="primary"]:hover{background:#E8B800!important;box-shadow:0 2px 12px rgba(255,203,5,.3)!important;}
 [data-testid="stDownloadButton"] button{
     background:var(--navy)!important;color:white!important;
     border-color:var(--navy)!important;font-weight:700!important;}
@@ -85,51 +85,66 @@ details[open]>div{background:var(--card)!important;}
 [data-testid="stColumn"]{background:transparent!important;}
 hr{border-color:var(--border)!important;}
 
-/* 컴포넌트 */
+/* ── 브랜딩 ── */
 .brand-wrap{text-align:center;padding:1rem 0 0}
 .brand-co{font-size:.85rem;font-weight:700;color:var(--navy);letter-spacing:.15em;font-family:var(--head)}
-.brand-title{font-size:2.6rem;font-weight:900;color:var(--navy);font-family:var(--display);letter-spacing:-.02em}
-.brand-sub{font-size:.72rem;font-weight:600;letter-spacing:.18em;color:var(--dim)}
+.brand-title{font-size:2.6rem;font-weight:900;color:var(--navy);font-family:var(--display);
+    letter-spacing:-.02em;position:relative;display:inline-block}
+.brand-title::after{content:'';position:absolute;bottom:2px;left:0;width:100%;height:4px;
+    background:var(--y);border-radius:2px}
+.brand-sub{font-size:.72rem;font-weight:600;letter-spacing:.18em;color:var(--dim);margin-top:.5rem}
+
+/* ── 노란 섹션 헤더 (Series Engine 통일) ── */
+.section-header{background:var(--y);color:var(--navy);padding:.6rem 1rem;border-radius:6px;
+    font-weight:800;font-size:1rem;font-family:var(--head);margin:1.5rem 0 .8rem;
+    display:flex;justify-content:space-between;align-items:center}
+.section-header .en{font-family:var(--display);font-size:.75rem;font-weight:700;
+    letter-spacing:.05em;opacity:.7}
+
+/* ── 서브섹션 (하단 선) ── */
 .sec{font-size:1.05rem;font-weight:800;color:var(--navy);font-family:var(--head);
      padding:.5rem 0;border-bottom:2px solid var(--y);margin-bottom:1rem}
-.step-hd{background:var(--y);color:var(--navy);font-family:var(--head);font-weight:800;
-         font-size:1.05rem;padding:.65rem 1.2rem;border-radius:8px;margin-bottom:1.2rem;
-         display:flex;align-items:center;justify-content:space-between}
-.step-hd .step-en{font-size:.68rem;font-weight:700;letter-spacing:.15em;color:var(--navy);opacity:.65}
 .en{font-size:.7rem;font-weight:600;color:var(--dim);letter-spacing:.1em;margin-left:.5rem}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1rem}
-.callout{background:var(--lb);border-left:4px solid var(--y);border-radius:0 8px 8px 0;padding:.8rem 1rem;margin-bottom:.8rem}
-.ri{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--navy);
-    border-radius:0 8px 8px 0;padding:.7rem 1rem;margin-bottom:.5rem}
-.cl{font-size:.72rem;font-weight:700;color:var(--navy);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.3rem}
-.rl{font-size:.7rem;font-weight:700;color:var(--dim);margin-bottom:.2rem}
+
+/* ── 카드 (Series Engine 통일) ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+    padding:1.2rem;margin-bottom:.8rem;box-shadow:0 1px 4px rgba(0,0,0,.03);transition:all .2s}
+.card:hover{border-color:var(--navy);box-shadow:0 3px 12px rgba(25,25,112,.07);transform:translateY(-1px)}
+
+/* ── 콜아웃 (Series Engine 통일) ── */
+.callout{background:var(--lb);border-left:4px solid var(--navy);border-radius:0 8px 8px 0;
+    padding:.9rem 1.1rem;margin:.5rem 0;font-size:.88rem}
+
+/* ── 정보 블록 (Series Engine 통일 — 보더 제거, 배경만) ── */
+.ri{background:var(--lb);border-radius:8px;padding:.9rem 1rem;margin-bottom:.5rem;
+    font-size:.88rem;line-height:1.6}
+.rl{color:var(--navy);font-weight:700;font-size:.72rem;letter-spacing:.02em;margin-bottom:.2rem}
+
+/* ── 라벨 ── */
+.cl{font-size:.72rem;font-weight:700;color:var(--navy);letter-spacing:.08em;
+    text-transform:uppercase;margin-bottom:.3rem}
+
+/* ── 에피소드 블록 ── */
 .ep-block{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--orange);
           border-radius:0 12px 12px 0;padding:1.2rem 1.4rem;margin-bottom:1rem}
 .ep-hd{font-size:.9rem;font-weight:800;color:var(--orange);letter-spacing:.05em;margin-bottom:.8rem}
 
-/* 스텝바 */
-.step-bar{display:flex;align-items:center;justify-content:center;margin:1.5rem 0}
+/* ── 스텝바 (Series Engine 통일) ── */
+.step-bar{display:flex;align-items:center;justify-content:center;margin:1.5rem 0 2rem;gap:0}
 .step-dot{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
-          justify-content:center;font-weight:900;font-size:.8rem}
-.step-dot.done{background:var(--g);color:white}
-.step-dot.active{background:var(--y);color:var(--navy)}
-.step-dot.wait{background:#E6E9EF;color:#AAA}
-.step-line{flex:1;height:2px;background:#E6E9EF;max-width:80px}
+          justify-content:center;font-weight:700;font-size:.78rem;border:2px solid transparent;transition:all .2s}
+.step-dot.done{background:var(--g);color:white;border-color:var(--g)}
+.step-dot.active{background:var(--y);color:var(--navy);border-color:var(--y);box-shadow:0 0 0 4px rgba(255,203,5,.2)}
+.step-dot.wait{background:#EDEDF0;color:var(--dim);border-color:#D8D8E0}
+.step-line{flex:1;height:2px;background:#D8D8E0;max-width:80px;margin:0 2px}
 .step-line.done{background:var(--g)}
 
-/* 도파민 배지 */
+/* ── 도파민 배지 ── */
 .db{display:inline-block;padding:2px 8px;border-radius:12px;font-size:.68rem;font-weight:800;margin:2px}
 .d1{background:#FFE0B2;color:#E65100} .d2{background:#E8F5E9;color:#2E7D32}
 .d3{background:#E3F2FD;color:#1565C0} .d4{background:#F3E5F5;color:#6A1B9A}
 .d5{background:#FCE4EC;color:#880E4F} .d6{background:#FFF3E0;color:#E65100}
 .d7{background:#EFEBE9;color:#4E342E} .d8{background:#E0F7FA;color:#006064}
-
-/* 감정 카테고리 색상 */
-.cat-anger{color:#D32F2F;border-color:#D32F2F}
-.cat-sadness{color:#7B68EE;border-color:#7B68EE}
-.cat-joy{color:#FF69B4;border-color:#FF69B4}
-.cat-pleasure{color:#2EC484;border-color:#2EC484}
-.cat-tension{color:#FF8C00;border-color:#FF8C00}
 </style>
 """, unsafe_allow_html=True)
 
@@ -237,6 +252,15 @@ def highlight_script(text):
             )
             continue
 
+        # S# 씬 헤더 (S#1. 장소. 낮/밤.)
+        if re.match(r'^S#\d+', raw):
+            out.append(
+                f'<div style="font-weight:800;font-size:.82rem;color:var(--navy);'
+                f'background:var(--lb);padding:5px 10px;border-radius:6px;margin:.6rem 0 .2rem;'
+                f'border-left:4px solid var(--navy)">{escaped}</div>'
+            )
+            continue
+
         # 장소 헤더 (XX. 낮/밤/저녁/새벽.)
         if re.match(r'^.+\.\s*(낮|밤|저녁|새벽|아침|오후|오전|심야)', raw):
             out.append(
@@ -293,7 +317,7 @@ with tab_create:
     st.markdown('<hr>', unsafe_allow_html=True)
 
     # ── STEP 1: 컨셉 ──────────────────────────────
-    st.markdown('<div class="step-hd">📝 컨셉 설정 <span class="step-en">STEP 1 · CONCEPT</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📝 컨셉 설정 <span class="en">STEP 1 · CONCEPT</span></div>', unsafe_allow_html=True)
 
     formula_options = {
         "재벌복수":"👑 재벌 복수 — 신분격차+출생비밀+지위역전",
@@ -547,7 +571,7 @@ with tab_create:
     # ── STEP 2: 아크 ────────────────────────────────
     if st.session_state.step >= 1 and st.session_state.concept:
         st.markdown("---")
-        st.markdown('<div class="step-hd">📊 100화 아크 설계 <span class="step-en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">📊 100화 아크 설계 <span class="en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
 
         if st.button("📊 100화 아크 + 도파민 마일스톤 생성", type="primary", use_container_width=True):
             total = st.session_state.concept.get("total_eps",100)
@@ -635,7 +659,7 @@ with tab_create:
     # ── STEP 3: 집필 ────────────────────────────────
     if st.session_state.step >= 2 and st.session_state.arc:
         st.markdown("---")
-        st.markdown('<div class="step-hd">✍️ 블록 집필 <span class="step-en">STEP 3 · BLOCK WRITING</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">✍️ 블록 집필 <span class="en">STEP 3 · BLOCK WRITING</span></div>', unsafe_allow_html=True)
 
         blocks = st.session_state.arc.get("blocks",[])
 
@@ -807,7 +831,7 @@ with tab_create:
     # ── STEP 4: 다운로드 ────────────────────────────
     if st.session_state.blocks:
         st.markdown("---")
-        st.markdown('<div class="step-hd">⬇️ 다운로드 <span class="step-en">STEP 4 · DOWNLOAD</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">⬇️ 다운로드 <span class="en">STEP 4 · DOWNLOAD</span></div>', unsafe_allow_html=True)
 
         total_b = len(st.session_state.blocks)
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
@@ -857,7 +881,7 @@ with tab_create:
 # ═══════════════════════════════════════════════════
 with tab_convert:
     st.markdown("---")
-    st.markdown('<div class="step-hd">🔄 기존 글 → 숏폼 변환 <span class="step-en">CONVERT TO SHORTFORM</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🔄 기존 글 → 숏폼 변환 <span class="en">CONVERT TO SHORTFORM</span></div>', unsafe_allow_html=True)
     st.caption("소설·시나리오·웹툰·실화 등 어떤 텍스트든 도파민 탑재 숏폼으로 변환합니다.")
 
     col_cv1, col_cv2 = st.columns([2,1])
