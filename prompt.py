@@ -1157,8 +1157,24 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 제목: {concept.get('title','')} | 시장: {market}
 로그라인: {concept.get('logline','')}
 시즌 질문: {concept.get('season_question','')}
-주인공 아크: {concept.get('protagonist',{}).get('arc','')}
-악역 나쁜 짓: {concept.get('villain',{}).get('specific_evil','')}
+
+[캐릭터 바이블 — 이 이름과 설정을 절대 변경하지 마라]
+주인공: {concept.get('protagonist',{}).get('name','')} ({concept.get('protagonist',{}).get('age','')})
+  시작 상태: {concept.get('protagonist',{}).get('start_state','')}
+  아크: {concept.get('protagonist',{}).get('arc','')}
+  숨겨진 힘: {concept.get('protagonist',{}).get('hidden_power','')}
+  비밀: {concept.get('protagonist',{}).get('secret','')}
+  말투: {concept.get('protagonist',{}).get('dialogue_tone','')}
+악역: {concept.get('villain',{}).get('name','')} ({concept.get('villain',{}).get('age','')})
+  정체: {concept.get('villain',{}).get('identity','')}
+  구체적 나쁜 짓: {concept.get('villain',{}).get('specific_evil','')}
+  말투: {concept.get('villain',{}).get('dialogue_tone','')}
+  몰락: {concept.get('villain',{}).get('downfall','')}
+조력자: {concept.get('helper',{}).get('name','')} — {concept.get('helper',{}).get('role','')}
+  숨겨진 의도: {concept.get('helper',{}).get('hidden_agenda','')}
+경쟁자: {concept.get('rival',{}).get('name','')} — {concept.get('rival',{}).get('advantage','')}
+
+[도파민 설계]
 중독 루프: {dopamine.get('addiction_loop','')}
 시소 패턴: {dopamine.get('seesaw_pattern','')}
 EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
