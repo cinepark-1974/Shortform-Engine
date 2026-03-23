@@ -15,7 +15,7 @@ MODEL_WRITE = P.MODEL_WRITE   # claude-opus-4-6  — 블록 집필
 MODEL_PLAN  = P.MODEL_PLAN    # claude-sonnet-4-6 — 컨셉·아크·변환
 
 MAX_TOKENS_CONCEPT = 6000
-MAX_TOKENS_ARC     = 8000   # 청크당 5블록(25화) — 4회 호출
+MAX_TOKENS_ARC     = 12000  # 청크당 5블록(25화) — 4회 호출
 MAX_TOKENS_BLOCK   = 12000
 MAX_TOKENS_CONVERT = 10000
 MAX_TOKENS_PILOT   = 8000
@@ -267,7 +267,7 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
                         chunk=chunk, total_chunks=total_chunks,
                         prev_summary=prev_summary),
                     MAX_TOKENS_ARC,
-                    system="You are a JSON generator. Output ONLY valid JSON. No markdown, no explanation, no text before or after the JSON object."
+                    system="You are a concise JSON generator for a 100-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean. 5) first_subtitle: MAX 10 chars Korean. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL 5 blocks with ALL 5 episodes each. Never truncate."
                 )
             result = safe_json(raw)
             if result and result.get("blocks"):
