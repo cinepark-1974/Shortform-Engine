@@ -1216,7 +1216,14 @@ with tab_convert:
 
         if st.session_state.arc:
             st.markdown("---")
-            st.info("✅ 아크 생성 완료. **✍️ 새 숏폼 만들기** 탭에서 STEP 3 블록 집필을 진행하세요.")
+            st.markdown(
+                '<div style="background:var(--g);color:white;padding:1rem 1.5rem;border-radius:8px;'
+                'text-align:center;margin:1rem 0">'
+                '<div style="font-size:1.1rem;font-weight:800;margin-bottom:.3rem">✅ 아크 생성 완료!</div>'
+                '<div style="font-size:.85rem;opacity:.9">위의 <b>✍️ 새 숏폼 만들기</b> 탭을 클릭하면 STEP 3 블록 집필이 바로 시작됩니다.</div>'
+                '<div style="font-size:2rem;margin-top:.5rem">↑</div>'
+                '</div>', unsafe_allow_html=True
+            )
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
