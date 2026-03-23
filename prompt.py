@@ -1193,44 +1193,46 @@ EP16 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
 - 통쾌함은 예측 불가 타이밍에 (간헐적 강화)
 - 클리프행어 유형 변주: 직전 블록과 같은 유형 연속 금지
 
-[JSON 스키마 — 이 청크의 5블록(25화)만 출력]
+[JSON 스키마 — 이 청크의 5블록(25화)만 출력. 간결하게!]
 {{
   "chunk": {chunk},
-  "chunk_summary": "이 청크 25화 흐름 요약 2~3문장 (다음 청크에 전달용)",
+  "chunk_summary": "이 청크 흐름 2~3문장",
   "dopamine_milestones": [
-    {{"ep":0,"type":"D1~D9","event":"이 화에서 터지는 도파민 장면"}}
+    {{"ep":0,"type":"D코드","event":"장면 15자 이내"}}
   ],
   "blocks": [
     {{
       "block_no": {start_block}, "ep_range": "EP {start_ep}~{start_ep+4}",
-      "phase": "국면", "theme": "핵심 감정/사건",
+      "phase": "국면 5자", "theme": "주제 10자",
       "sweet_bitter": "Sweet|Bitter|Bittersweet",
-      "dopamine_target": "이 블록 주력 도파민",
-      "recommended_emotion_modes": ["감정1","감정2","감정3","감정4","감정5"],
+      "dopamine_target": "D코드",
       "episodes": [
         {{
           "ep": {start_ep},
-          "summary": "핵심 사건 1줄 (30자 이내)",
-          "emotion_mode": "25가지 감정 중 하나",
+          "summary": "사건 15자 이내",
+          "emotion_mode": "감정모드명",
           "cliffhanger_type": "Slap|Reveal|Reversal|Arrival|Choice|Threat|Tears",
-          "cliffhanger": "클리프행어 내용 1줄",
-          "first_subtitle": "[충격/반전/사이다] 첫 자막",
-          "paywall": false,
-          "dopamine_moment": "이 화의 도파민 포인트",
-          "market_hook": ""
+          "cliffhanger": "끊기는 순간 15자 이내",
+          "first_subtitle": "[충격/반전/사이다] 자막 10자",
+          "paywall": false
         }}
       ]
     }}
   ]
 }}
 
+★★★ 토큰 절약 — 위반 시 JSON 잘림으로 실패한다 ★★★
+- summary: 반드시 15자 이내. 나쁨: "인턴 최종합격 후 당일 채용 취소 통보" → 좋음: "채용 당일 취소 통보"
+- cliffhanger: 반드시 15자 이내. 나쁨: "강태오가 세영 앞에서 서류를 집어던지며..." → 좋음: "서류 던짐 — 끊김"
+- first_subtitle: 반드시 10자 이내. 나쁨: "[충격] 합격 문자 받은 날 바로 짤렸다" → 좋음: "[충격] 당일 해고"
+- chunk_summary: 반드시 3문장 이내.
+- dopamine_milestones: 이 청크 3~5개만. event 15자 이내.
+- 스키마에 없는 필드 절대 금지: recommended_emotion_modes, market_hook, dopamine_moment 쓰지 마라.
 - blocks 정확히 5개 (블록{start_block}~{end_block})
 - 각 block episodes 정확히 5개
 - block_no는 {start_block}부터 {end_block}까지
 - ep 번호는 {start_ep}부터 {end_ep}까지
 - emotion_mode은 EMOTIONAL_MODES의 25가지 중 하나
-- dopamine_milestones: 이 청크의 주요 장면 3~5개
-- chunk_summary: 다음 청크가 이어서 설계할 수 있도록 핵심 흐름 요약
 - {JSON_RULES.strip()}"""
 
 
