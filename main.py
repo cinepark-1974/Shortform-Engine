@@ -153,7 +153,7 @@ hr{border-color:var(--border)!important;}
 def init():
     d = {"step":0,"concept":None,"arc":None,"blocks":{},
          "convert_result":None,"block_modes":{},"pilot_text":None,
-         "producer_note":""}
+         "producer_note":"","selected_block":None}
     for k,v in d.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -839,9 +839,23 @@ with tab_create:
                     st.success(f"블록 {target_bn} 저장: {emojis}")
                     st.rerun()
 
-        st.caption("블록 1개 = 5화. Opus 고품질 모드로 집필됩니다.")
+        st.caption("블록 1개 = 5화. 아래에서 블록을 선택하면 상세 정보와 각본 쓰기 버튼이 나타납니다.")
 
-        # 블록 버튼
+        # 진행률
+        done_count = len(st.session_state.blocks)
+        total_blocks = len(blocks)
+        if total_blocks > 0:
+            pct = int(done_count / total_blocks * 100)
+            st.markdown(
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">'
+                f'<div style="font-size:.82rem;color:var(--dim)">{done_count}/{total_blocks} 블록 완료</div>'
+                f'<div style="font-size:.82rem;color:var(--dim)">{pct}%</div></div>'
+                f'<div style="background:#E6E9EF;height:6px;border-radius:3px;margin-bottom:1rem">'
+                f'<div style="background:var(--g);height:6px;border-radius:3px;width:{pct}%"></div></div>',
+                unsafe_allow_html=True
+            )
+
+        # 블록 그리드 (선택용)
         for row_start in range(0, len(blocks), 5):
             cols = st.columns(5)
             for ci, col in enumerate(cols):
@@ -852,9 +866,9 @@ with tab_create:
                 ep_r = blk.get("ep_range","")
                 phase = blk.get("phase","")
                 is_done = bn in st.session_state.blocks
+                is_selected = st.session_state.selected_block == bn
                 is_paywall = bn in [4,5]
 
-                # 감정 모드 기본 추천
                 default_modes = st.session_state.block_modes.get(bn)
                 if default_modes is None:
                     if bn <= 3: default_modes = P.EMOTIONAL_MODE_COMBOS["분노_축적"]
@@ -871,56 +885,120 @@ with tab_create:
                         f'{ep_r}<br>{mode_disp}</div>',
                         unsafe_allow_html=True
                     )
-                    label = f"✓ 블록{bn}" if is_done else f"✍️ 블록{bn}"
+                    if is_done:
+                        label = f"✅ 블록{bn}"
+                    elif is_selected:
+                        label = f"▶ 블록{bn}"
+                    else:
+                        label = f"블록{bn}"
                     pay = " 💰" if is_paywall else ""
                     if st.button(f"{label}{pay}\n{phase}", key=f"b_{bn}", use_container_width=True):
-                        prev_s = ""
-                        if bn > 1 and (bn-1) in st.session_state.blocks:
-                            t = st.session_state.blocks[bn-1]
-                            prev_s = t[-300:] if len(t)>300 else t
-                        with st.spinner(f"블록{bn} {mode_disp} 집필 중... (Opus)"):
-                            pt = P.build_block_prompt(
-                                st.session_state.concept, blk, bn, prev_s,
-                                emotional_modes=default_modes,
-                                producer_note=st.session_state.producer_note)
-                            rt = ""
-                            ph = st.empty()
-                            for chunk in call_stream(pt, MAX_TOKENS_BLOCK, model=MODEL_WRITE):
-                                rt += chunk
-                                if len(rt) % 200 < 10:
-                                    ph.text_area(f"블록{bn}...", rt, height=150,
-                                                  key=f"s_{bn}_{len(rt)}")
-                            st.session_state.blocks[bn] = rt
-                            st.rerun()
+                        st.session_state.selected_block = bn
+                        st.rerun()
 
-        # 집필된 블록 표시
+        # 선택된 블록 상세 패널
+        sel = st.session_state.selected_block
+        if sel and sel <= len(blocks):
+            blk = blocks[sel-1]
+            bn = sel
+            ep_r = blk.get("ep_range","")
+            phase = blk.get("phase","")
+            theme = blk.get("theme","")
+            sweet_bitter = blk.get("sweet_bitter","")
+            dopamine_target = blk.get("dopamine_target","")
+            is_done = bn in st.session_state.blocks
+
+            default_modes = st.session_state.block_modes.get(bn)
+            if default_modes is None:
+                if bn <= 3: default_modes = P.EMOTIONAL_MODE_COMBOS["분노_축적"]
+                elif bn in [4,5]: default_modes = P.EMOTIONAL_MODE_COMBOS["과금_전환"]
+                elif bn <= 10: default_modes = P.EMOTIONAL_MODE_COMBOS["감정_시소"]
+                elif bn <= 16: default_modes = P.EMOTIONAL_MODE_COMBOS["로맨스_피크"]
+                else: default_modes = P.EMOTIONAL_MODE_COMBOS["클라이맥스"]
+            mode_disp = " ".join([P.EMOTIONAL_MODES.get(m,{}).get("emoji","") for m in default_modes[:5]])
+
+            st.markdown("---")
+            st.markdown(
+                f'<div style="background:var(--lb);border-left:4px solid var(--navy);'
+                f'border-radius:0 8px 8px 0;padding:1rem 1.2rem;margin-bottom:1rem">'
+                f'<div style="font-weight:800;font-size:1rem;color:var(--navy);margin-bottom:.5rem">'
+                f'블록{bn} — {ep_r}</div>'
+                f'<div style="font-size:.85rem;margin:.2rem 0">국면: {phase} / {theme}</div>'
+                f'<div style="font-size:.85rem;margin:.2rem 0">감정 리듬: {sweet_bitter} / 도파민: {dopamine_target}</div>'
+                f'<div style="font-size:.85rem;margin:.2rem 0">감정 모드: {mode_disp}</div>'
+                f'</div>', unsafe_allow_html=True
+            )
+
+            # 에피소드 목록
+            episodes = blk.get("episodes", [])
+            if episodes:
+                ep_html = ""
+                for ep in episodes:
+                    em = ep.get("emotion_mode","")
+                    mode = P.EMOTIONAL_MODES.get(em,{})
+                    ep_html += (
+                        f'<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #E6E9EF;font-size:.82rem">'
+                        f'<div style="min-width:45px;font-weight:700;color:var(--navy)">EP{ep.get("ep","")}</div>'
+                        f'<div style="flex:1">{ep.get("summary","")}</div>'
+                        f'<div style="min-width:30px">{mode.get("emoji","")}</div>'
+                        f'<div style="min-width:60px;color:var(--orange);font-size:.75rem">{ep.get("cliffhanger_type","")}</div>'
+                        f'</div>'
+                    )
+                st.markdown(f'<div style="margin-bottom:1rem">{ep_html}</div>', unsafe_allow_html=True)
+
+            if is_done:
+                st.success(f"블록{bn} 집필 완료")
+                with st.expander(f"📖 블록{bn} 대본 보기", expanded=False):
+                    st.markdown(highlight_script(st.session_state.blocks[bn]), unsafe_allow_html=True)
+                col_dl, col_re, col_del = st.columns(3)
+                with col_dl:
+                    st.download_button(f"⬇️ 블록{bn} TXT",
+                        st.session_state.blocks[bn].encode("utf-8"),
+                        file_name=f"block{bn:02d}_{ep_r.replace(' ','')}.txt",
+                        mime="text/plain", key=f"dl_{bn}", use_container_width=True)
+                with col_re:
+                    if st.button(f"🔄 블록{bn} 다시 쓰기", key=f"re_{bn}", use_container_width=True):
+                        del st.session_state.blocks[bn]
+                        st.rerun()
+                with col_del:
+                    if st.button(f"🗑️ 삭제", key=f"del_{bn}", use_container_width=True):
+                        del st.session_state.blocks[bn]
+                        st.session_state.selected_block = None
+                        st.rerun()
+            else:
+                if st.button(
+                    f"✍️ 블록{bn} 각본 쓰기 — {ep_r} ({phase})",
+                    type="primary", use_container_width=True, key=f"write_{bn}"
+                ):
+                    prev_s = ""
+                    if bn > 1 and (bn-1) in st.session_state.blocks:
+                        t = st.session_state.blocks[bn-1]
+                        prev_s = t[-300:] if len(t)>300 else t
+                    with st.spinner(f"블록{bn} {mode_disp} 각본 집필 중... (Opus)"):
+                        pt = P.build_block_prompt(
+                            st.session_state.concept, blk, bn, prev_s,
+                            emotional_modes=default_modes,
+                            producer_note=st.session_state.producer_note)
+                        rt = ""
+                        ph = st.empty()
+                        for chunk in call_stream(pt, MAX_TOKENS_BLOCK, model=MODEL_WRITE):
+                            rt += chunk
+                            if len(rt) % 200 < 10:
+                                ph.text_area(f"블록{bn} 집필 중...", rt, height=200,
+                                              key=f"s_{bn}_{len(rt)}")
+                        st.session_state.blocks[bn] = rt
+                        st.rerun()
+
+        # 집필된 블록 요약 (상세는 블록 선택 패널에서)
         if st.session_state.blocks:
             st.markdown("---")
-            st.markdown("#### 📝 집필된 대본")
-            for bn in sorted(st.session_state.blocks.keys()):
-                bt = st.session_state.blocks[bn]
-                bi_info = blocks[bn-1] if bn<=len(blocks) else {}
-                ep_r = bi_info.get("ep_range",f"블록{bn}")
-                ph = bi_info.get("phase","")
-                sw = bi_info.get("sweet_bitter","")
-                dt = bi_info.get("dopamine_target","")
-                dm = st.session_state.block_modes.get(bn,P.EMOTIONAL_MODE_COMBOS["분노_축적"])
-                mode_disp = " ".join([P.EMOTIONAL_MODES.get(m,{}).get("emoji","") for m in dm[:5]])
-
-                with st.expander(f"블록{bn} — {ep_r} [{ph}] {sw} {mode_disp} 🧠{dt}",
-                                  expanded=(bn==max(st.session_state.blocks.keys()))):
-                    st.markdown(highlight_script(bt), unsafe_allow_html=True)
-                    with st.expander("📄 원본 텍스트 보기", expanded=False):
-                        st.text_area("대본", bt, height=300, key=f"ta_{bn}")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.download_button(f"⬇️ 블록{bn} TXT", bt.encode("utf-8"),
-                            file_name=f"block{bn:02d}_{ep_r.replace(' ','')}.txt",
-                            mime="text/plain", key=f"dl_{bn}")
-                    with c2:
-                        if st.button(f"🗑️ 삭제", key=f"del_{bn}"):
-                            del st.session_state.blocks[bn]
-                            st.rerun()
+            done_list = sorted(st.session_state.blocks.keys())
+            st.markdown(
+                f'<div style="font-size:.82rem;color:var(--dim)">'
+                f'📝 집필 완료: {", ".join([f"블록{b}" for b in done_list])} '
+                f'— 위 그리드에서 블록을 클릭하면 대본을 확인할 수 있습니다.</div>',
+                unsafe_allow_html=True
+            )
 
     # ── STEP 4: 다운로드 ────────────────────────────
     if st.session_state.blocks:
