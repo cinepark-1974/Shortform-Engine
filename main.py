@@ -12,7 +12,7 @@ import io
 from datetime import datetime
 import prompt as P
 from docx import Document as DocxDocument
-from docx.shared import Pt, Inches, RGBColor
+from docx.shared import Pt, Inches, RGBColor, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 MODEL_WRITE = P.MODEL_WRITE   # claude-opus-4-6  — 블록 집필
@@ -331,6 +331,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
             r = p.add_run(txt); r.font.size = Pt(10); r.font.bold = True
         elif kind == 'DIAL':
             p.paragraph_format.space_after = Pt(2); p.paragraph_format.line_spacing = 2.0
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(2.5))
             m = re.match(r'^(\S+)\s*\t+\s*(.+)$', txt) or re.match(r'^(\S+)\s{2,}(.+)$', txt)
             if m:
                 nr = p.add_run(m.group(1)+"\t"); nr.font.size = Pt(10); nr.font.bold = True
