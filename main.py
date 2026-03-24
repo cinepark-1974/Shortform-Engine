@@ -221,10 +221,10 @@ def call_stream(prompt, max_tokens, model=None):
             yield t
 
 def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
-    """숏폼 대본 텍스트를 실제 대본 포맷 DOCX로 변환한다."""
+    """숏폼 대본 텍스트를 실제 대본 포맷 DOCX로 변환한다.
+    빈줄 규칙: 지문+지문=붙임, 지문↔대사=빈줄, 대사+대사=붙임, 씬 앞=빈줄."""
     doc = DocxDocument()
 
-    # 페이지 설정 (A4)
     section = doc.sections[0]
     section.page_width = Inches(8.27)
     section.page_height = Inches(11.69)
@@ -233,122 +233,118 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
     section.left_margin = Inches(0.72)
     section.right_margin = Inches(0.72)
 
-    # 기본 스타일
-    style_normal = doc.styles['Normal']
-    style_normal.font.name = '맑은 고딕'
-    style_normal.font.size = Pt(10)
-    style_normal.paragraph_format.space_after = Pt(0)
-    style_normal.paragraph_format.line_spacing = 1.5
+    sn = doc.styles['Normal']
+    sn.font.name = '맑은 고딕'
+    sn.font.size = Pt(10)
+    sn.paragraph_format.space_after = Pt(0)
+    sn.paragraph_format.space_before = Pt(0)
+    sn.paragraph_format.line_spacing = 1.5
 
     # 커버 페이지
-    p_label = doc.add_paragraph()
-    p_label.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_label.paragraph_format.space_before = Pt(120)
-    run_label = p_label.add_run("시나리오")
-    run_label.font.size = Pt(10)
-    run_label.font.color.rgb = RGBColor(0x8E, 0x8E, 0x99)
-
-    for _ in range(3):
-        doc.add_paragraph()
-
-    p_title = doc.add_paragraph()
-    p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run_title = p_title.add_run(title)
-    run_title.font.size = Pt(24)
-    run_title.font.bold = True
-    run_title.font.color.rgb = RGBColor(0x19, 0x19, 0x70)
-
+    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER; p.paragraph_format.space_before = Pt(120)
+    r = p.add_run("시나리오"); r.font.size = Pt(10); r.font.color.rgb = RGBColor(0x8E,0x8E,0x99)
+    for _ in range(3): doc.add_paragraph()
+    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = p.add_run(title); r.font.size = Pt(24); r.font.bold = True; r.font.color.rgb = RGBColor(0x19,0x19,0x70)
     if subtitle:
         doc.add_paragraph()
-        p_sub = doc.add_paragraph()
-        p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run_sub = p_sub.add_run(subtitle)
-        run_sub.font.size = Pt(9)
-        run_sub.font.color.rgb = RGBColor(0x8E, 0x8E, 0x99)
-
-    for _ in range(6):
-        doc.add_paragraph()
-
-    p_credit = doc.add_paragraph()
-    p_credit.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run_credit = p_credit.add_run("기획 | 블루진픽처스")
-    run_credit.font.size = Pt(9)
-    run_credit.font.color.rgb = RGBColor(0x8E, 0x8E, 0x99)
-
-    # 페이지 브레이크
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = p.add_run(subtitle); r.font.size = Pt(9); r.font.color.rgb = RGBColor(0x8E,0x8E,0x99)
+    for _ in range(6): doc.add_paragraph()
+    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = p.add_run("기획 | 블루진픽처스"); r.font.size = Pt(9); r.font.color.rgb = RGBColor(0x8E,0x8E,0x99)
     doc.add_page_break()
 
-    # 대본 본문
-    for line in text.split("\n"):
-        raw = line.rstrip()
+    # 1단계: 줄 분류
+    def classify(line):
+        t = line.strip()
+        if not t: return 'BLANK', t
+        if t.startswith('━') or t.startswith('===='): return 'SKIP', t
+        if re.match(r'^\[블록\d+', t): return 'BLOCK', t
+        if re.match(r'^EP\s*\d+', t) and '|' in t: return 'EP', t
+        if t.startswith('[자막]'): return 'SUBTITLE', t
+        if re.match(r'^S#\d+', t): return 'SCENE', t
+        if re.match(r'^\S+\s*\t+\s*.+$', t) or re.match(r'^\S+\s{2,}.+$', t): return 'DIAL', t
+        return 'STGE', t
 
-        # 빈 줄
-        if not raw:
-            doc.add_paragraph()
-            continue
+    classified = [(k, t) for k, t in (classify(l) for l in text.split("\n")) if k != 'SKIP']
 
-        # EP 헤더 (구분선 제외)
-        if raw.startswith("━"):
-            continue
+    # 2단계: 빈줄 규칙 + 지문 병합
+    output = []
+    stge_buf = []
 
-        if re.match(r'^EP\s*\d+', raw) and "|" in raw:
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(18)
-            p.paragraph_format.space_after = Pt(6)
-            run = p.add_run(raw)
-            run.font.size = Pt(12)
-            run.font.bold = True
-            run.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
-            continue
+    def flush_stge():
+        if stge_buf:
+            output.append(('STGE', ' '.join(stge_buf)))
+            stge_buf.clear()
 
-        # [자막]
-        if raw.strip().startswith("[자막]"):
-            p = doc.add_paragraph()
-            p.paragraph_format.space_after = Pt(4)
-            run = p.add_run(raw)
-            run.font.size = Pt(10)
-            run.font.bold = True
-            run.font.color.rgb = RGBColor(0xFF, 0x6B, 0x35)
-            continue
+    for kind, txt in classified:
+        prev = output[-1][0] if output else 'BLANK'
+        if kind == 'EP':
+            flush_stge()
+            if prev != 'BLANK': output.append(('BLANK',''))
+            output.append((kind, txt))
+        elif kind == 'BLOCK':
+            flush_stge()
+            if prev != 'BLANK': output.append(('BLANK',''))
+            output.append((kind, txt))
+        elif kind == 'SUBTITLE':
+            flush_stge()
+            output.append((kind, txt))
+        elif kind == 'SCENE':
+            flush_stge()
+            if prev not in ('BLANK','EP','SUBTITLE'):
+                output.append(('BLANK',''))
+            output.append((kind, txt))
+        elif kind == 'DIAL':
+            flush_stge()
+            if prev == 'STGE': output.append(('BLANK',''))
+            output.append((kind, txt))
+        elif kind == 'STGE':
+            if prev == 'DIAL' and not stge_buf:
+                output.append(('BLANK',''))
+            stge_buf.append(txt)
+        elif kind == 'BLANK':
+            flush_stge()
+            if prev != 'BLANK': output.append((kind, txt))
+    flush_stge()
 
-        # S# 씬 헤더
-        if re.match(r'^S#\d+', raw):
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(10)
-            p.paragraph_format.space_after = Pt(4)
-            p.paragraph_format.line_spacing = 2.0
-            run = p.add_run(raw)
-            run.font.size = Pt(10)
-            run.font.bold = True
-            continue
-
-        # 대사 (인물명  대사)
-        m = re.match(r'^(\S+)\s{2,}(.+)$', raw)
-        if m:
-            p = doc.add_paragraph()
-            p.paragraph_format.space_after = Pt(4)
-            p.paragraph_format.line_spacing = 2.0
-            name_run = p.add_run(m.group(1) + "\t")
-            name_run.font.size = Pt(10)
-            name_run.font.bold = True
-            dial_run = p.add_run(m.group(2))
-            dial_run.font.size = Pt(10)
-            continue
-
-        # 지문
+    # 3단계: DOCX 생성
+    for kind, txt in output:
+        if kind == 'BLANK':
+            doc.add_paragraph(); continue
         p = doc.add_paragraph()
-        p.paragraph_format.space_after = Pt(0)
-        run = p.add_run(raw)
-        run.font.size = Pt(10)
+        if kind == 'EP':
+            p.paragraph_format.space_before = Pt(18); p.paragraph_format.space_after = Pt(6)
+            parts = txt.split("|")
+            clean = parts[0].strip() + " | " + parts[1].strip() if len(parts)>=2 else txt
+            r = p.add_run(clean); r.font.size = Pt(12); r.font.bold = True; r.font.color.rgb = RGBColor(0x59,0x59,0x59)
+        elif kind == 'BLOCK':
+            p.paragraph_format.space_before = Pt(24)
+            r = p.add_run(txt); r.font.size = Pt(11); r.font.bold = True; r.font.color.rgb = RGBColor(0x19,0x19,0x70)
+        elif kind == 'SUBTITLE':
+            p.paragraph_format.space_after = Pt(4)
+            r = p.add_run(txt); r.font.size = Pt(10); r.font.bold = True; r.font.color.rgb = RGBColor(0xFF,0x6B,0x35)
+        elif kind == 'SCENE':
+            p.paragraph_format.space_before = Pt(10); p.paragraph_format.space_after = Pt(4)
+            p.paragraph_format.line_spacing = 2.0
+            r = p.add_run(txt); r.font.size = Pt(10); r.font.bold = True
+        elif kind == 'DIAL':
+            p.paragraph_format.space_after = Pt(2); p.paragraph_format.line_spacing = 2.0
+            m = re.match(r'^(\S+)\s*\t+\s*(.+)$', txt) or re.match(r'^(\S+)\s{2,}(.+)$', txt)
+            if m:
+                nr = p.add_run(m.group(1)+"\t"); nr.font.size = Pt(10); nr.font.bold = True
+                dr = p.add_run(m.group(2)); dr.font.size = Pt(10)
+            else:
+                r = p.add_run(txt); r.font.size = Pt(10)
+        elif kind == 'STGE':
+            p.paragraph_format.space_after = Pt(0)
+            r = p.add_run(txt); r.font.size = Pt(10)
 
-    # 푸터
-    doc.add_paragraph()
-    doc.add_paragraph()
-    ft = doc.add_paragraph()
-    ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run_ft = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.1 · {datetime.now().strftime('%Y-%m-%d')}")
-    run_ft.font.size = Pt(7)
-    run_ft.font.color.rgb = RGBColor(0xAA, 0xAA, 0xAA)
+    doc.add_paragraph(); doc.add_paragraph()
+    ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.1 · {datetime.now().strftime('%Y-%m-%d')}")
+    r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
     doc.save(buf)
