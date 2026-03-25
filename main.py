@@ -309,17 +309,58 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
             if prev != 'BLANK': output.append((kind, txt))
     flush_stge()
 
+    # 공통 텍스트 정리: 대시→쉼표, 이모지 제거, '끊긴다' 제거
+    def clean_text(t):
+        t = re.sub(r'[\U0001f600-\U0001f9ff\U00002702-\U000027B0\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff✊💢💙💗🥺😡🗡️⚡✨🔥💰]', '', t)
+        t = t.replace(' — ', ', ').replace('—', ', ')
+        t = re.sub(r',?\s*끊긴다\.?', '', t)  # "끊긴다" "끊긴다." ", 끊긴다"
+        t = re.sub(r',\s*,', ',', t)  # 이중 쉼표 제거
+        t = re.sub(r',\s*$', '', t)  # 끝에 남은 쉼표 제거
+        return t.strip()
+
     # 3단계: DOCX 생성
     for kind, txt in output:
         if kind == 'BLANK':
             doc.add_paragraph(); continue
-        p = doc.add_paragraph()
         if kind == 'EP':
-            p.paragraph_format.space_before = Pt(18); p.paragraph_format.space_after = Pt(6)
-            parts = txt.split("|")
-            clean = parts[0].strip() + " | " + parts[1].strip() if len(parts)>=2 else txt
-            r = p.add_run(clean); r.font.size = Pt(12); r.font.bold = True; r.font.color.rgb = RGBColor(0x59,0x59,0x59)
-        elif kind == 'BLOCK':
+            from docx.oxml import OxmlElement
+            from docx.oxml.ns import qn
+            # EP 헤더 정리: 이모지 제거, 대시 제거
+            clean = re.sub(r'[\U0001f600-\U0001f9ff\U00002702-\U000027B0\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff✊💢💙💗🥺😡🗡️⚡✨🔥💰]', '', txt)
+            clean = clean.replace('—', ',').replace(' , ', ', ').strip()
+            clean = re.sub(r'\s+', ' ', clean)
+            parts = clean.split("|")
+            ep_text = parts[0].strip() + " | " + parts[1].strip() if len(parts) >= 2 else clean
+
+            # 1) 상단 구분선
+            bp1 = doc.add_paragraph()
+            bp1.paragraph_format.space_after = Pt(0)
+            pPr1 = bp1._p.get_or_add_pPr()
+            pBdr1 = OxmlElement('w:pBdr')
+            bot1 = OxmlElement('w:bottom')
+            bot1.set(qn('w:val'), 'single'); bot1.set(qn('w:sz'), '4')
+            bot1.set(qn('w:space'), '1'); bot1.set(qn('w:color'), '595959')
+            pBdr1.append(bot1); pPr1.append(pBdr1)
+
+            # 2) EP 텍스트
+            ep_p = doc.add_paragraph()
+            ep_p.paragraph_format.space_before = Pt(6)
+            ep_p.paragraph_format.space_after = Pt(6)
+            r = ep_p.add_run(ep_text); r.font.size = Pt(12); r.font.bold = True; r.font.color.rgb = RGBColor(0x59,0x59,0x59)
+
+            # 3) 하단 구분선
+            bp2 = doc.add_paragraph()
+            bp2.paragraph_format.space_before = Pt(0)
+            bp2.paragraph_format.space_after = Pt(6)
+            pPr2 = bp2._p.get_or_add_pPr()
+            pBdr2 = OxmlElement('w:pBdr')
+            top2 = OxmlElement('w:top')
+            top2.set(qn('w:val'), 'single'); top2.set(qn('w:sz'), '4')
+            top2.set(qn('w:space'), '1'); top2.set(qn('w:color'), '595959')
+            pBdr2.append(top2); pPr2.append(pBdr2)
+            continue
+        p = doc.add_paragraph()
+        if kind == 'BLOCK':
             p.paragraph_format.space_before = Pt(24)
             r = p.add_run(txt); r.font.size = Pt(11); r.font.bold = True; r.font.color.rgb = RGBColor(0x19,0x19,0x70)
         elif kind == 'SUBTITLE':
@@ -328,19 +369,20 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
         elif kind == 'SCENE':
             p.paragraph_format.space_before = Pt(10); p.paragraph_format.space_after = Pt(4)
             p.paragraph_format.line_spacing = 2.0
-            r = p.add_run(txt); r.font.size = Pt(10); r.font.bold = True
+            r = p.add_run(clean_text(txt)); r.font.size = Pt(10); r.font.bold = True
         elif kind == 'DIAL':
             p.paragraph_format.space_after = Pt(2); p.paragraph_format.line_spacing = 2.0
             p.paragraph_format.tab_stops.add_tab_stop(Cm(2.5))
-            m = re.match(r'^(\S+)\s*\t+\s*(.+)$', txt) or re.match(r'^(\S+)\s{2,}(.+)$', txt)
+            cleaned = clean_text(txt)
+            m = re.match(r'^(\S+)\s*\t+\s*(.+)$', cleaned) or re.match(r'^(\S+)\s{2,}(.+)$', cleaned)
             if m:
                 nr = p.add_run(m.group(1)+"\t"); nr.font.size = Pt(10); nr.font.bold = True
                 dr = p.add_run(m.group(2)); dr.font.size = Pt(10)
             else:
-                r = p.add_run(txt); r.font.size = Pt(10)
+                r = p.add_run(cleaned); r.font.size = Pt(10)
         elif kind == 'STGE':
             p.paragraph_format.space_after = Pt(0)
-            r = p.add_run(txt); r.font.size = Pt(10)
+            r = p.add_run(clean_text(txt)); r.font.size = Pt(10)
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
