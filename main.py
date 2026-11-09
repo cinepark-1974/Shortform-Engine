@@ -5,6 +5,7 @@
 """
 
 import streamlit as st
+from bj_header import render_header  # 공통 헤더 (Writer Engine 기준)
 import anthropic
 import json
 import re
@@ -555,13 +556,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-st.markdown(
-    '<div class="brand-wrap">'
-    '<div class="brand-co">B L U E &nbsp; J E A N S &nbsp; P I C T U R E S</div>'
-    '<div class="brand-title">SHORTFORM ENGINE</div>'
-    '<div class="brand-sub">v2.1 &nbsp;·&nbsp; DOPAMINE DESIGN &nbsp;·&nbsp; 25 EMOTIONS &nbsp;·&nbsp; 100EP</div>'
-    '</div>', unsafe_allow_html=True
-)
+render_header("SHORTFORM ENGINE", note="v2.1 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
