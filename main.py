@@ -433,6 +433,8 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
     all_summaries = []
     prev_summary = ""
     subtitle_style = st.session_state.get("subtitle_key", P.DEFAULT_SUBTITLE)
+    lead = st.session_state.get("lead_key", P.DEFAULT_LEAD)
+    paywall_ep = st.session_state.get("paywall_key", P.DEFAULT_PAYWALL)
     sub_max = P.SUBTITLE_STYLES[subtitle_style]["max_chars"]
     sub_limit = f"MAX {sub_max} chars Korean" if sub_max else "empty string"
 
@@ -449,7 +451,8 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
                         producer_note=producer_note,
                         chunk=chunk, total_chunks=total_chunks,
                         prev_summary=prev_summary,
-                        subtitle_style=subtitle_style),
+                        subtitle_style=subtitle_style,
+                        lead=lead, paywall_ep=paywall_ep),
                     MAX_TOKENS_ARC,
                     system=f"You are a concise JSON generator for a 100-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean. 5) first_subtitle: {sub_limit}. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL 5 blocks with ALL 5 episodes each. Never truncate."
                 )
@@ -477,7 +480,7 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         "arc_summary": " → ".join(all_summaries),
         "dopamine_milestones": all_milestones,
         "blocks": all_blocks,
-        "paywall_eps": [16, 17, 18, 19, 20],
+        "paywall_eps": list(range(paywall_ep, paywall_ep + 5)),
     }
     progress_placeholder.success(f"✅ 아크 생성 완료 — {len(all_blocks)}블록 · {len(all_milestones)}개 도파민 마일스톤")
     return merged
@@ -560,7 +563,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.2 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.3 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
@@ -578,8 +581,21 @@ with st.expander("🎬 프로듀서 노트 — 모든 단계에 반영됩니다"
     if pn != st.session_state.producer_note:
         st.session_state.producer_note = pn
 
-# ─── 작품 톤 · 첫 자막 형식 (전 단계 공통) ────────
-col_tone, col_sub = st.columns(2)
+# ─── 작품 톤 · 주인공 향 · 과금 관문 · 첫 자막 형식 (전 단계 공통) ────────
+# 컨셉을 만들기 전에 고릅니다. 중간에 바꾸면 이미 만든 컨셉·아크와 어긋납니다.
+col_tone, col_lead, col_pay, col_sub = st.columns(4)
+with col_lead:
+    lead_key = st.selectbox(
+        "주인공 향", list(P.LEAD_RULES.keys()),
+        index=list(P.LEAD_RULES.keys()).index(P.DEFAULT_LEAD),
+        format_func=lambda x: P.LEAD_RULES[x]["name"], key="lead_key")
+    st.caption(P.LEAD_RULES[lead_key]["desc"])
+with col_pay:
+    paywall_key = st.selectbox(
+        "첫 과금 관문", list(P.PAYWALL_OPTIONS.keys()),
+        index=list(P.PAYWALL_OPTIONS.keys()).index(P.DEFAULT_PAYWALL),
+        format_func=lambda x: P.PAYWALL_OPTIONS[x]["name"], key="paywall_key")
+    st.caption(P.PAYWALL_OPTIONS[paywall_key]["desc"])
 with col_tone:
     tone_key = st.selectbox(
         "작품 톤", list(P.TONE_RULES.keys()),
@@ -592,6 +608,34 @@ with col_sub:
         index=list(P.SUBTITLE_STYLES.keys()).index(P.DEFAULT_SUBTITLE),
         format_func=lambda x: P.SUBTITLE_STYLES[x]["name"], key="subtitle_key")
     st.caption(P.SUBTITLE_STYLES[subtitle_key]["desc"])
+
+
+def block_has_paywall(bn):
+    """이 블록(5화)에 과금 구간의 화가 들어 있는가."""
+    pw_eps = (st.session_state.arc or {}).get("paywall_eps", list(range(paywall_key, paywall_key + 5)))
+    return any((bn - 1) * 5 < e <= bn * 5 for e in pw_eps)
+
+
+def default_block_modes(bn, blk):
+    """블록의 기본 감정 모드 5개. 직접 고른 것 > 아크가 화마다 정한 감정 > 기본 콤보 순."""
+    chosen = st.session_state.block_modes.get(bn)
+    if chosen:
+        return chosen
+    arc_modes = [e.get("emotion_mode", "") for e in blk.get("episodes", [])]
+    if len(arc_modes) == 5 and all(m in P.EMOTIONAL_MODES for m in arc_modes):
+        return arc_modes
+    if block_has_paywall(bn): return P.EMOTIONAL_MODE_COMBOS["과금_전환"]
+    if bn <= 3: return P.EMOTIONAL_MODE_COMBOS["분노_축적"]
+    if bn <= 10: return P.EMOTIONAL_MODE_COMBOS["감정_시소"]
+    if bn <= 16: return P.EMOTIONAL_MODE_COMBOS["로맨스_피크"]
+    return P.EMOTIONAL_MODE_COMBOS["클라이맥스"]
+
+
+def china_tone_notice(market):
+    """중국 시장 + 독한 톤 조합일 때 안내를 띄운다."""
+    if market == "중국" and tone_key == "harsh":
+        st.warning("중국 유통에서는 학대·가정폭력 장면이 단속 대상이라는 보도가 있습니다. "
+                   "독한 톤의 손찌검·무릎 장면이 심의에 걸릴 수 있습니다. 중국 유통이 목표라면 조용한 톤을 권합니다.")
 
 tab_create, tab_convert = st.tabs(["✍️ 새 숏폼 만들기", "🔄 기존 글 → 숏폼 변환"])
 
@@ -611,6 +655,8 @@ with tab_create:
         "능력각성":"⚡ 능력 각성 — 1화 능력 발현+숨긴 정체",
         "귀환재회":"🔄 귀환/재회 — 5년 후 돌아온 사람+아이의 정체",
         "복수극":  "🗡️ 복수극 — 배신→하나씩 무너뜨리기",
+        "섬혼":    "💍 번개 결혼 — 당일 파혼+처음 본 남자+남편의 숨긴 정체",
+        "이혼후회":"📄 이혼 후 후회남 — 도장 찍고 떠난 아내+뒤늦게 매달리는 남편",
         "감성숏폼":"💕 감성 숏폼 — 설렘+배신+눈물 (원작 변환형)",
     }
 
@@ -622,7 +668,7 @@ with tab_create:
         st.markdown(
             f'<div class="callout"><div class="cl">공식 설명</div>{formula["desc"]}<br>'
             f'<span style="font-size:.8rem;color:var(--navy);font-weight:700">💰 과금:</span>'
-            f'<span style="font-size:.8rem"> {formula["paywall"]}</span><br>'
+            f'<span style="font-size:.8rem"> {P.fill_paywall(formula["paywall"], paywall_key)}</span><br>'
             f'<span style="font-size:.75rem;color:var(--orange)">🧠 도파민: {formula["dopamine_key"][:60]}...</span>'
             f'</div>', unsafe_allow_html=True
         )
@@ -631,6 +677,7 @@ with tab_create:
         col_m, col_r = st.columns(2)
         with col_m:
             market = st.selectbox("타겟 시장", ["한국","글로벌","중국"], key="mkt")
+        china_tone_notice(market)
         with col_r:
             rating = st.selectbox("수위 등급",
                 ["family","teen","adult"],
@@ -694,7 +741,8 @@ with tab_create:
                                            secrets or "자동 생성", season_question,
                                            combined, market, rating,
                                            producer_note=st.session_state.producer_note,
-                                           tone=tone_key, subtitle_style=subtitle_key),
+                                           tone=tone_key, subtitle_style=subtitle_key,
+                                           lead=lead_key, paywall_ep=paywall_key),
                     MAX_TOKENS_CONCEPT
                 )
                 result = safe_json(raw)
@@ -816,7 +864,7 @@ with tab_create:
         market_note = f'<div style="font-size:.75rem;color:#D32F2F;margin-top:.2rem">🌐 {pd.get("ep16_market","")}</div>' if pd.get("ep16_market") else ""
         st.markdown(
             f'<div class="card" style="border-left:4px solid var(--y)">'
-            f'<div class="cl">💰 과금 전환점 (EP 16~20)</div>'
+            f'<div class="cl">💰 과금 전환점 (EP {paywall_key}~{paywall_key + 4})</div>'
             f'<div style="font-size:.95rem;font-weight:700">{pd.get("ep16_reversal","")}</div>'
             f'<div style="margin-top:.3rem">{d_badge(pd.get("ep16_dopamine",""))}</div>'
             f'{market_note}'
@@ -897,7 +945,7 @@ with tab_create:
                 for blk in blocks:
                     for ep in blk.get("episodes",[]):
                         ep_no = ep.get("ep",0)
-                        paywall = ep_no in arc.get("paywall_eps",[16,17,18,19,20])
+                        paywall = ep_no in arc.get("paywall_eps", list(range(paywall_key, paywall_key + 5)))
                         badge = '<span style="background:var(--y);color:var(--navy);padding:1px 5px;border-radius:8px;font-size:.62rem;font-weight:800">💰</span>' if paywall else (
                             '<span style="background:var(--g);color:white;padding:1px 5px;border-radius:8px;font-size:.62rem;font-weight:800">FREE</span>' if ep_no<=15 else "")
                         em = ep.get("emotion_mode","")
@@ -974,7 +1022,7 @@ with tab_create:
             "직접 설정": None,
             "💢 분노 축적 (EP 1~15)":    P.EMOTIONAL_MODE_COMBOS["분노_축적"],
             "⚖️ 감정 시소 (EP 15~40)":   P.EMOTIONAL_MODE_COMBOS["감정_시소"],
-            "💰 과금 전환 (EP 16~20)":   P.EMOTIONAL_MODE_COMBOS["과금_전환"],
+            "💰 과금 전환 (과금 관문 구간)":   P.EMOTIONAL_MODE_COMBOS["과금_전환"],
             "🔥 로맨스 피크 (EP 30~50)":  P.EMOTIONAL_MODE_COMBOS["로맨스_피크"],
             "💚 삼각관계 (EP 20~50)":    P.EMOTIONAL_MODE_COMBOS["삼각관계"],
             "⚔️ 복수 시작 (EP 40~70)":   P.EMOTIONAL_MODE_COMBOS["복수_시작"],
@@ -1061,20 +1109,8 @@ with tab_create:
                 phase = blk.get("phase","")
                 is_done = bn in st.session_state.blocks
                 is_selected = st.session_state.selected_block == bn
-                is_paywall = bn in [4,5]
-
-                default_modes = st.session_state.block_modes.get(bn)
-                if default_modes is None:
-                    # 아크가 화마다 정한 감정(응징 화 포함)을 먼저 쓴다. 없으면 아래 기본 콤보.
-                    arc_modes = [e.get("emotion_mode", "") for e in blk.get("episodes", [])]
-                    if len(arc_modes) == 5 and all(m in P.EMOTIONAL_MODES for m in arc_modes):
-                        default_modes = arc_modes
-                if default_modes is None:
-                    if bn <= 3: default_modes = P.EMOTIONAL_MODE_COMBOS["분노_축적"]
-                    elif bn in [4,5]: default_modes = P.EMOTIONAL_MODE_COMBOS["과금_전환"]
-                    elif bn <= 10: default_modes = P.EMOTIONAL_MODE_COMBOS["감정_시소"]
-                    elif bn <= 16: default_modes = P.EMOTIONAL_MODE_COMBOS["로맨스_피크"]
-                    else: default_modes = P.EMOTIONAL_MODE_COMBOS["클라이맥스"]
+                is_paywall = block_has_paywall(bn)
+                default_modes = default_block_modes(bn, blk)
 
                 mode_disp = " ".join([P.EMOTIONAL_MODES.get(m,{}).get("emoji","") for m in default_modes[:5]])
 
@@ -1107,13 +1143,7 @@ with tab_create:
             dopamine_target = blk.get("dopamine_target","")
             is_done = bn in st.session_state.blocks
 
-            default_modes = st.session_state.block_modes.get(bn)
-            if default_modes is None:
-                if bn <= 3: default_modes = P.EMOTIONAL_MODE_COMBOS["분노_축적"]
-                elif bn in [4,5]: default_modes = P.EMOTIONAL_MODE_COMBOS["과금_전환"]
-                elif bn <= 10: default_modes = P.EMOTIONAL_MODE_COMBOS["감정_시소"]
-                elif bn <= 16: default_modes = P.EMOTIONAL_MODE_COMBOS["로맨스_피크"]
-                else: default_modes = P.EMOTIONAL_MODE_COMBOS["클라이맥스"]
+            default_modes = default_block_modes(bn, blk)
             mode_disp = " ".join([P.EMOTIONAL_MODES.get(m,{}).get("emoji","") for m in default_modes[:5]])
 
             st.markdown("---")
@@ -1180,7 +1210,8 @@ with tab_create:
                             st.session_state.concept, blk, bn, prev_s,
                             emotional_modes=default_modes,
                             producer_note=st.session_state.producer_note,
-                            tone=tone_key, subtitle_style=subtitle_key)
+                            tone=tone_key, subtitle_style=subtitle_key,
+                            lead=lead_key, paywall_ep=paywall_key)
                         rt = ""
                         ph = st.empty()
                         for chunk in call_stream(pt, MAX_TOKENS_BLOCK, model=MODEL_WRITE):
@@ -1283,6 +1314,7 @@ with tab_convert:
         col_m2, col_r2 = st.columns(2)
         with col_m2:
             cv_market = st.selectbox("시장",["한국","글로벌","중국"], key="cvm")
+        china_tone_notice(cv_market)
         with col_r2:
             cv_rating = st.selectbox("수위",["family","teen","adult"],
                 format_func=lambda x:{"family":"전체가","teen":"15세+","adult":"19+"}[x],
@@ -1302,7 +1334,8 @@ with tab_convert:
                     P.build_convert_prompt(source_text, cv_formula, cv_eps,
                                            cv_intensity, preserve_elements, cv_market, cv_rating,
                                            producer_note=st.session_state.producer_note,
-                                           tone=tone_key, subtitle_style=subtitle_key),
+                                           tone=tone_key, subtitle_style=subtitle_key,
+                                           lead=lead_key, paywall_ep=paywall_key),
                     MAX_TOKENS_CONVERT
                 )
                 result = safe_json(raw)
@@ -1405,7 +1438,8 @@ with tab_convert:
                     pilot_prompt = P.build_pilot_prompt(
                         cr, source_text or "", cv_market, cv_rating,
                         producer_note=st.session_state.producer_note,
-                        formula_key=cv_formula, tone=tone_key, subtitle_style=subtitle_key)
+                        formula_key=cv_formula, tone=tone_key, subtitle_style=subtitle_key,
+                        lead=lead_key, paywall_ep=paywall_key)
                     pilot_result = ""
                     pilot_ph = st.empty()
                     for chunk in call_stream(pilot_prompt, MAX_TOKENS_PILOT, model=MODEL_WRITE):
@@ -1520,6 +1554,6 @@ with tab_convert:
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.2 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.3 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )

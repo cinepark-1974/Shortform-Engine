@@ -14,6 +14,7 @@
    공식마다 컨셉 → 아크(EP1~25) → 블록1(EP1~5)을 실제로 뽑아
    tools/live_out/ 에 저장하고, 금지어가 나왔는지 알려 준다.
    톤과 자막 형식을 바꾸려면 --tone quiet / --subtitle sentence 를 붙인다.
+   주인공 향과 과금 관문은 --lead male / --paywall 8 로 바꾼다.
 """
 import json
 import os
@@ -42,22 +43,26 @@ DUMMY_BLOCK = {"ep_range": "EP 1~5", "phase": "도입", "theme": "점검", "epis
     for i, m in enumerate(["굴욕", "분노", "굴욕", "통쾌", "긴장"], start=1)]}
 
 
-def all_prompts(formula, tone, sub):
+def all_prompts(formula, tone, sub, lead="female", pw=10):
     concept = dict(DUMMY_CONCEPT, formula=formula)
+    kw = dict(lead=lead, paywall_ep=pw)
     modes = ["굴욕", "분노", "굴욕", "통쾌", "긴장"]
     return {
-        "system": P.build_system_prompt(formula, tone, sub),
+        "system": P.build_system_prompt(formula, tone, sub, **kw),
         "concept": P.build_concept_prompt(formula, "주인공 입력", "악역 입력", "비밀", "질문",
-                                          market="글로벌", tone=tone, subtitle_style=sub),
-        "arc1": P.build_arc_prompt(concept, chunk=1, subtitle_style=sub),
-        "arc3": P.build_arc_prompt(concept, chunk=3, subtitle_style=sub),
+                                          market="글로벌", tone=tone, subtitle_style=sub, **kw),
+        "arc1": P.build_arc_prompt(concept, chunk=1, subtitle_style=sub, **kw),
+        "arc3": P.build_arc_prompt(concept, chunk=3, subtitle_style=sub, **kw),
         "block1": P.build_block_prompt(concept, DUMMY_BLOCK, 1, emotional_modes=modes,
-                                       tone=tone, subtitle_style=sub),
+                                       tone=tone, subtitle_style=sub, **kw),
+        "block2": P.build_block_prompt(concept, dict(DUMMY_BLOCK, ep_range="EP 6~10", episodes=[
+            dict(e, ep=e["ep"] + 5) for e in DUMMY_BLOCK["episodes"]]), 2, emotional_modes=modes,
+                                       tone=tone, subtitle_style=sub, **kw),
         "block7": P.build_block_prompt(concept, dict(DUMMY_BLOCK, ep_range="EP 31~35"), 7,
                                        emotional_modes=["연민", "절망", "공감", "유혹", "미련"],
-                                       tone=tone, subtitle_style=sub),
-        "convert": P.build_convert_prompt("원본 글", formula, market="글로벌", tone=tone, subtitle_style=sub),
-        "pilot": P.build_pilot_prompt({}, market="글로벌", formula_key=formula, tone=tone, subtitle_style=sub),
+                                       tone=tone, subtitle_style=sub, **kw),
+        "convert": P.build_convert_prompt("원본 글", formula, market="글로벌", tone=tone, subtitle_style=sub, **kw),
+        "pilot": P.build_pilot_prompt({}, market="글로벌", formula_key=formula, tone=tone, subtitle_style=sub, **kw),
     }
 
 
@@ -68,29 +73,54 @@ def static_check():
     sig = {k: {t: v["scene"][t].split("\n")[1] for t in P.TONE_RULES}
            for k, v in P.FORMULA_EXAMPLES.items()}
     n = 0
-    for f in formulas:
-        for tone in P.TONE_RULES:
-            for sub in P.SUBTITLE_STYLES:
+    combos = [(f, tone, sub, lead, pw) for f in formulas for tone in P.TONE_RULES
+              for sub in P.SUBTITLE_STYLES for lead in P.LEAD_RULES for pw in P.PAYWALL_OPTIONS]
+    for f, tone, sub, lead, pw in combos:
+        if True:
+            if True:
                 n += 1
-                tag = f"{f}/{tone}/{sub}"
-                ps = all_prompts(f, tone, sub)
+                tag = f"{f}/{tone}/{sub}/{lead}/{pw}"
+                ps = all_prompts(f, tone, sub, lead, pw)
                 for name, text in ps.items():
                     for w in BANNED:
                         if w in text:
                             fails.append(f"{tag} {name}: 금지어 '{w}'")
+                    if "⟦" in text or "⟧" in text:
+                        fails.append(f"{tag} {name}: 과금 관문 표시가 채워지지 않음")
                     if "<<" in text or ">>" in text:
                         fails.append(f"{tag} {name}: 조립 안 된 표시가 남음")
                     if re.search(r"\{[a-z_]+(\[|\.|\})", text):
                         fails.append(f"{tag} {name}: 치환 안 된 변수가 남음")
                 sysp = ps["system"]
                 own = f if f in P.FORMULA_EXAMPLES else "_공통"
-                # 1) 선택한 공식·톤의 예시만 들어갔는가
+                male_harsh = (lead == "male" and tone == "harsh")
+                # 1) 선택한 공식·톤의 예시만 들어갔는가 (남성향+독한 톤은 전용 예시)
                 for k in sig:
                     for t in P.TONE_RULES:
                         inside = sig[k][t] in sysp
-                        should = (k == own and t == tone)
+                        should = (k == own and t == tone and not male_harsh)
+                        if male_harsh and t == "harsh":
+                            continue  # 남성향 전용 예시는 같은 무대에서 시작할 수 있어 아래 1-1에서 따로 본다
                         if inside != should:
                             fails.append(f"{tag}: 예시 주입 오류 ({k}/{t} 포함={inside})")
+                # 1-1) 남성향: 주인공이 맞거나 꿇는 예시가 없어야 한다
+                if lead == "male":
+                    for name in ("system", "block1", "pilot"):
+                        for bad in ("[주인공]의 뺨을 친다", "[주인공]의 뺨을 때", "[주인공]이 무릎을 꿇",
+                                    "[주인공]의 어깨를 누른다", "[주인공]을 밀친다", "[주인공]의 어깨를 밀친다",
+                                    "[주인공]이 밀려 나온다", "[주인공]이 향로 옆으로 넘어진다"):
+                            if bad in ps[name]:
+                                fails.append(f"{tag} {name}: 남성향인데 주인공이 당하는 예시 '{bad}'")
+                for name in ("system", "block1", "pilot"):
+                    if ("주인공 향: 남성향 — 이 작품에만" in ps[name]) != (lead == "male"):
+                        fails.append(f"{tag} {name}: 주인공 향 지침 주입 오류")
+                # 1-2) 과금 관문 화수가 선택대로 들어갔는가
+                if f"EP{pw - 1}~{pw}" not in ps["system"] or f"EP {pw} 이전에도" not in ps["arc1"]:
+                    fails.append(f"{tag}: 과금 관문 화수 주입 오류")
+                if pw in (8, 10) and "과금 전환점 — EP" not in ps["block2"]:
+                    fails.append(f"{tag}: 과금 블록 분량 안내 누락")
+                if pw == 16 and "과금 전환점 — EP" in ps["block2"]:
+                    fails.append(f"{tag}: 과금 블록이 아닌데 과금 안내가 들어감")
                 # 2) 조용한 악역 지침은 조용한 톤에서만
                 quiet_mark = "조용한 톤 — 이 작품에만 적용"
                 harsh_mark = "독한 톤 — 이 작품에만 적용"
@@ -128,7 +158,7 @@ def static_check():
         for w in BANNED:
             if any(w in str(x) for x in v.values()):
                 fails.append(f"감정 모드 {k}: 금지어 '{w}'")
-    print(f"조합 {n}개 × 프롬프트 8종 점검")
+    print(f"조합 {n}개 × 프롬프트 9종 점검")
     if fails:
         print(f"실패 {len(fails)}건")
         for x in fails[:40]:
@@ -138,7 +168,7 @@ def static_check():
     return 0
 
 
-def live_check(formulas, tone, sub):
+def live_check(formulas, tone, sub, lead="female", pw=10):
     import anthropic
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
@@ -163,15 +193,18 @@ def live_check(formulas, tone, sub):
         print(f"[{f}] 컨셉 생성 중...")
         concept = to_json(ask(P.build_concept_prompt(
             f, "이름과 직업은 자유. 가진 것 없이 무시당하는 사람.", "이름과 직업은 자유. 주인공을 짓밟는 사람.",
-            "자동 생성", "주인공은 빼앗긴 것을 되찾을 수 있을까", tone=tone, subtitle_style=sub),
+            "자동 생성", "주인공은 빼앗긴 것을 되찾을 수 있을까", tone=tone, subtitle_style=sub,
+            lead=lead, paywall_ep=pw),
             P.MODEL_PLAN, 6000))
         print(f"[{f}] 아크(EP1~25) 생성 중...")
-        arc = to_json(ask(P.build_arc_prompt(concept, chunk=1, subtitle_style=sub), P.MODEL_PLAN, 12000))
+        arc = to_json(ask(P.build_arc_prompt(concept, chunk=1, subtitle_style=sub, lead=lead, paywall_ep=pw),
+                          P.MODEL_PLAN, 12000))
         blk = arc["blocks"][0]
         modes = [e.get("emotion_mode", "") for e in blk.get("episodes", [])]
         print(f"[{f}] 블록1(EP1~5) 집필 중...")
         script = ask(P.build_block_prompt(concept, blk, 1, emotional_modes=modes,
-                                          tone=tone, subtitle_style=sub), P.MODEL_WRITE, 12000)
+                                          tone=tone, subtitle_style=sub, lead=lead, paywall_ep=pw),
+                     P.MODEL_WRITE, 12000)
         base = os.path.join(out_dir, f"{f}_{tone}_{sub}")
         json.dump({"concept": concept, "arc_chunk1": arc}, open(base + ".json", "w", encoding="utf-8"),
                   ensure_ascii=False, indent=2)
@@ -195,5 +228,7 @@ if __name__ == "__main__":
         tone = args[args.index("--tone") + 1] if "--tone" in args else P.DEFAULT_TONE
         sub = args[args.index("--subtitle") + 1] if "--subtitle" in args else P.DEFAULT_SUBTITLE
         names = [a for a in args if a in P.MAKJANG_FORMULAS] or ["재벌복수", "능력각성"]
-        sys.exit(live_check(names, tone, sub))
+        lead = args[args.index("--lead") + 1] if "--lead" in args else P.DEFAULT_LEAD
+        pw = int(args[args.index("--paywall") + 1]) if "--paywall" in args else P.DEFAULT_PAYWALL
+        sys.exit(live_check(names, tone, sub, lead, pw))
     sys.exit(static_check())
