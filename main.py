@@ -432,6 +432,9 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
     all_milestones = []
     all_summaries = []
     prev_summary = ""
+    subtitle_style = st.session_state.get("subtitle_key", P.DEFAULT_SUBTITLE)
+    sub_max = P.SUBTITLE_STYLES[subtitle_style]["max_chars"]
+    sub_limit = f"MAX {sub_max} chars Korean" if sub_max else "empty string"
 
     for chunk in range(1, total_chunks + 1):
         start_ep = (chunk - 1) * 25 + 1
@@ -445,9 +448,10 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
                     P.build_arc_prompt(concept, total_eps,
                         producer_note=producer_note,
                         chunk=chunk, total_chunks=total_chunks,
-                        prev_summary=prev_summary),
+                        prev_summary=prev_summary,
+                        subtitle_style=subtitle_style),
                     MAX_TOKENS_ARC,
-                    system="You are a concise JSON generator for a 100-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean. 5) first_subtitle: MAX 10 chars Korean. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL 5 blocks with ALL 5 episodes each. Never truncate."
+                    system=f"You are a concise JSON generator for a 100-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean. 5) first_subtitle: {sub_limit}. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL 5 blocks with ALL 5 episodes each. Never truncate."
                 )
             result = safe_json(raw)
             if result and result.get("blocks"):
@@ -556,7 +560,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.1 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.2 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
@@ -569,10 +573,25 @@ with st.expander("🎬 프로듀서 노트 — 모든 단계에 반영됩니다"
     )
     pn = st.text_area("프로듀서 노트",
         value=st.session_state.producer_note,
-        placeholder="예: 대사를 더 건조하게. 악역은 조용한 타입으로. 로맨스 비중 낮추고 복수 중심.\n예: '통장 잔고 1,200원' 같은 구체적 숫자 많이 쓸 것.\n예: 클리프행어에 소리 연출(발소리, 벨소리) 적극 활용.",
+        placeholder="예: 대사를 더 건조하게. 로맨스 비중 낮추고 복수 중심.\n예: '통장 잔고 1,200원' 같은 구체적 숫자 많이 쓸 것.\n예: 클리프행어에 소리 연출(발소리, 벨소리) 적극 활용.",
         height=80, label_visibility="collapsed", key="pn_input")
     if pn != st.session_state.producer_note:
         st.session_state.producer_note = pn
+
+# ─── 작품 톤 · 첫 자막 형식 (전 단계 공통) ────────
+col_tone, col_sub = st.columns(2)
+with col_tone:
+    tone_key = st.selectbox(
+        "작품 톤", list(P.TONE_RULES.keys()),
+        index=list(P.TONE_RULES.keys()).index(P.DEFAULT_TONE),
+        format_func=lambda x: P.TONE_RULES[x]["name"], key="tone_key")
+    st.caption(P.TONE_RULES[tone_key]["desc"])
+with col_sub:
+    subtitle_key = st.selectbox(
+        "첫 자막 형식", list(P.SUBTITLE_STYLES.keys()),
+        index=list(P.SUBTITLE_STYLES.keys()).index(P.DEFAULT_SUBTITLE),
+        format_func=lambda x: P.SUBTITLE_STYLES[x]["name"], key="subtitle_key")
+    st.caption(P.SUBTITLE_STYLES[subtitle_key]["desc"])
 
 tab_create, tab_convert = st.tabs(["✍️ 새 숏폼 만들기", "🔄 기존 글 → 숏폼 변환"])
 
@@ -644,7 +663,7 @@ with tab_create:
             height=80)
     with col_i2:
         villain = st.text_area("메인 악역 설정",
-            placeholder="이름/나이/직업\n구체적 나쁜 짓 (관객이 '저거 우리 회사에도 있어!'라고 할 것)\n숨겨진 비밀 또는 약점",
+            placeholder="이름/나이/직업\n구체적 나쁜 짓 (관객이 '저런 사람 내 주변에도 있어!'라고 할 것)\n숨겨진 비밀 또는 약점",
             height=100)
         season_question = st.text_input("시즌 질문",
             placeholder="100화 동안 답을 안 주는 단 하나의 질문")
@@ -674,7 +693,8 @@ with tab_create:
                     P.build_concept_prompt(formula_key, protagonist, villain,
                                            secrets or "자동 생성", season_question,
                                            combined, market, rating,
-                                           producer_note=st.session_state.producer_note),
+                                           producer_note=st.session_state.producer_note,
+                                           tone=tone_key, subtitle_style=subtitle_key),
                     MAX_TOKENS_CONCEPT
                 )
                 result = safe_json(raw)
@@ -1045,6 +1065,11 @@ with tab_create:
 
                 default_modes = st.session_state.block_modes.get(bn)
                 if default_modes is None:
+                    # 아크가 화마다 정한 감정(응징 화 포함)을 먼저 쓴다. 없으면 아래 기본 콤보.
+                    arc_modes = [e.get("emotion_mode", "") for e in blk.get("episodes", [])]
+                    if len(arc_modes) == 5 and all(m in P.EMOTIONAL_MODES for m in arc_modes):
+                        default_modes = arc_modes
+                if default_modes is None:
                     if bn <= 3: default_modes = P.EMOTIONAL_MODE_COMBOS["분노_축적"]
                     elif bn in [4,5]: default_modes = P.EMOTIONAL_MODE_COMBOS["과금_전환"]
                     elif bn <= 10: default_modes = P.EMOTIONAL_MODE_COMBOS["감정_시소"]
@@ -1154,7 +1179,8 @@ with tab_create:
                         pt = P.build_block_prompt(
                             st.session_state.concept, blk, bn, prev_s,
                             emotional_modes=default_modes,
-                            producer_note=st.session_state.producer_note)
+                            producer_note=st.session_state.producer_note,
+                            tone=tone_key, subtitle_style=subtitle_key)
                         rt = ""
                         ph = st.empty()
                         for chunk in call_stream(pt, MAX_TOKENS_BLOCK, model=MODEL_WRITE):
@@ -1275,7 +1301,8 @@ with tab_convert:
                 raw = call_claude(
                     P.build_convert_prompt(source_text, cv_formula, cv_eps,
                                            cv_intensity, preserve_elements, cv_market, cv_rating,
-                                           producer_note=st.session_state.producer_note),
+                                           producer_note=st.session_state.producer_note,
+                                           tone=tone_key, subtitle_style=subtitle_key),
                     MAX_TOKENS_CONVERT
                 )
                 result = safe_json(raw)
@@ -1377,7 +1404,8 @@ with tab_convert:
                 with st.spinner("Opus가 파일럿 EP1+EP2 집필 중... (30~50초)"):
                     pilot_prompt = P.build_pilot_prompt(
                         cr, source_text or "", cv_market, cv_rating,
-                        producer_note=st.session_state.producer_note)
+                        producer_note=st.session_state.producer_note,
+                        formula_key=cv_formula, tone=tone_key, subtitle_style=subtitle_key)
                     pilot_result = ""
                     pilot_ph = st.empty()
                     for chunk in call_stream(pilot_prompt, MAX_TOKENS_PILOT, model=MODEL_WRITE):
@@ -1492,6 +1520,6 @@ with tab_convert:
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.1 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.2 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )
