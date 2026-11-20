@@ -43,9 +43,9 @@ DUMMY_BLOCK = {"ep_range": "EP 1~5", "phase": "도입", "theme": "점검", "epis
     for i, m in enumerate(["굴욕", "분노", "굴욕", "통쾌", "긴장"], start=1)]}
 
 
-def all_prompts(formula, tone, sub, lead="female", pw=10):
+def all_prompts(formula, tone, sub, lead="female", pw=10, ai=False):
     concept = dict(DUMMY_CONCEPT, formula=formula)
-    kw = dict(lead=lead, paywall_ep=pw)
+    kw = dict(lead=lead, paywall_ep=pw, ai_mode=ai)
     modes = ["굴욕", "분노", "굴욕", "통쾌", "긴장"]
     return {
         "system": P.build_system_prompt(formula, tone, sub, **kw),
@@ -73,14 +73,15 @@ def static_check():
     sig = {k: {t: v["scene"][t].split("\n")[1] for t in P.TONE_RULES}
            for k, v in P.FORMULA_EXAMPLES.items()}
     n = 0
-    combos = [(f, tone, sub, lead, pw) for f in formulas for tone in P.TONE_RULES
-              for sub in P.SUBTITLE_STYLES for lead in P.LEAD_RULES for pw in P.PAYWALL_OPTIONS]
-    for f, tone, sub, lead, pw in combos:
+    combos = [(f, tone, sub, lead, pw, ai) for f in formulas for tone in P.TONE_RULES
+              for sub in P.SUBTITLE_STYLES for lead in P.LEAD_RULES for pw in P.PAYWALL_OPTIONS
+              for ai in (False, True)]
+    for f, tone, sub, lead, pw, ai in combos:
         if True:
             if True:
                 n += 1
-                tag = f"{f}/{tone}/{sub}/{lead}/{pw}"
-                ps = all_prompts(f, tone, sub, lead, pw)
+                tag = f"{f}/{tone}/{sub}/{lead}/{pw}/{'ai' if ai else 'x'}"
+                ps = all_prompts(f, tone, sub, lead, pw, ai)
                 for name, text in ps.items():
                     for w in BANNED:
                         if w in text:
@@ -119,6 +120,22 @@ def static_check():
                     fails.append(f"{tag}: 과금 관문 화수 주입 오류")
                 if pw in (8, 10) and "과금 전환점 — EP" not in ps["block2"]:
                     fails.append(f"{tag}: 과금 블록 분량 안내 누락")
+                if pw == 5 and "과금 전환점 — EP" not in ps["block1"]:
+                    fails.append(f"{tag}: 무료 5화형인데 블록1에 과금 안내 누락")
+                # 1-3) AI 제작 모드 지침은 켰을 때만
+                for name in ("system", "block1", "block7", "pilot"):
+                    if ("AI 제작 모드 — 이 대본은" in ps[name]) != ai:
+                        fails.append(f"{tag} {name}: AI 제작 모드 지침 주입 오류")
+                if ("AI 제작 모드 — 컨셉 설계 제약" in ps["concept"]) != ai:
+                    fails.append(f"{tag}: 컨셉의 AI 제작 모드 제약 주입 오류")
+                if ai and "supporting_cast 최소 3명" in ps["concept"]:
+                    fails.append(f"{tag}: AI 제작 모드인데 '감초 최소 3명' 규칙이 남음")
+                # 1-4) 매 화 반전, 타겟
+                if "반전 1번 이상" not in ps["system"] or "매 화 반전" not in ps["arc1"]:
+                    fails.append(f"{tag}: 매 화 반전 규칙 누락")
+                for name in ("concept", "arc1", "block1", "pilot"):
+                    if "[타겟: " not in ps[name]:
+                        fails.append(f"{tag} {name}: 타겟 누락")
                 if pw == 16 and "과금 전환점 — EP" in ps["block2"]:
                     fails.append(f"{tag}: 과금 블록이 아닌데 과금 안내가 들어감")
                 # 2) 조용한 악역 지침은 조용한 톤에서만
@@ -140,9 +157,12 @@ def static_check():
                     if "[자막]" not in ps[name]:
                         fails.append(f"{tag} {name}: [자막] 줄이 포맷에서 사라짐")
                 # 4) EP1 기준은 EP1을 쓰는 곳에만
-                if "EP1 전용 기준 — 5개 모두" not in ps["block1"] or "EP1 전용 기준 — 5개 모두" not in ps["pilot"]:
+                if "EP1 전용 기준 — 6개 모두" not in ps["block1"] or "EP1 전용 기준 — 6개 모두" not in ps["pilot"]:
                     fails.append(f"{tag}: EP1 기준 누락")
-                if "EP1 전용 기준 — 5개 모두" in ps["block7"]:
+                for old in ("거부당하는 그림", "강자의 얼굴", "타격 대사"):
+                    if old in ps["block1"] or old in ps["pilot"] or old in ps["arc1"]:
+                        fails.append(f"{tag}: 예전 EP1 기준 문구 '{old}'가 남음")
+                if "EP1 전용 기준 — 6개 모두" in ps["block7"]:
                     fails.append(f"{tag}: EP1 기준이 다른 블록에 들어감")
                 # 5) 작은 응징·혼자 씬 한도
                 if "작은 응징 규칙" not in ps["arc1"]:
@@ -158,7 +178,39 @@ def static_check():
         for w in BANNED:
             if any(w in str(x) for x in v.values()):
                 fails.append(f"감정 모드 {k}: 금지어 '{w}'")
-    print(f"조합 {n}개 × 프롬프트 9종 점검")
+    # 총 화수별 아크: 청크 수, 블록 수, 마지막 화
+    for total in (20, 30, 50, 80, 90, 100):
+        for pw in (5, 10, 16):
+            if pw > total - 3:
+                continue
+            concept = dict(DUMMY_CONCEPT, formula="복수극", total_eps=total)
+            chunks = -(-total // 25)
+            seen = 0
+            for ch in range(1, chunks + 1):
+                a = P.build_arc_prompt(concept, total, chunk=ch, total_chunks=chunks, paywall_ep=pw)
+                import re as _re
+                if "⟦" in a or _re.search(r"EP 6~[1-5](?!\d)", a):
+                    fails.append(f"아크 {total}화/관문{pw}/청크{ch}: 화수 표기 오류")
+                m = _re.search(r"blocks 정확히 (\d+)개", a)
+                seen += int(m.group(1)) if m else 0
+            if seen != -(-total // 5):
+                fails.append(f"아크 {total}화: 블록 수 합계 {seen} (기대 {-(-total // 5)})")
+            last = P.build_arc_prompt(concept, total, chunk=chunks, total_chunks=chunks, paywall_ep=pw)
+            if f"EP {total}이 이 작품의 마지막 화" not in last:
+                fails.append(f"아크 {total}화: 마지막 화 안내 누락")
+    # 자동 점검기: 실제 불합격 원고와 합격 예시
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples")
+    bad = open(os.path.join(base, "danjjan_ep1-5_v21.txt"), encoding="utf-8").read()
+    r = P.check_script(bad, {"protagonist": {"name": "한세영"}, "villain": {"name": "오진혁"}, "helper": {"name": "윤수민"}})
+    joined = " ".join(r["issues"])
+    for need in ("EP 2: 대사가 0줄", "화면 인서트", "혼자인 씬"):
+        if need not in joined:
+            fails.append(f"자동 점검기: 예전 불합격 원고에서 '{need}'를 못 잡음")
+    good = open(os.path.join(base, "good_three_women.txt"), encoding="utf-8").read()
+    r = P.check_script(good, {"protagonist": {"name": "윤서연"}, "villain": {"name": "강해수"}}, ai_mode=True)
+    if not r["ok"]:
+        fails.append(f"자동 점검기: 합격 예시를 불합격 처리함 {r['issues']}")
+    print(f"조합 {n}개 × 프롬프트 9종 점검 + 화수별 아크 + 자동 점검기")
     if fails:
         print(f"실패 {len(fails)}건")
         for x in fails[:40]:
@@ -169,6 +221,7 @@ def static_check():
 
 
 def live_check(formulas, tone, sub, lead="female", pw=10):
+    # 참고: 실제 집필 확인은 배포된 앱에서 하는 편이 쉽다. 이 함수는 로컬에서 키가 있을 때만 쓴다.
     import anthropic
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:

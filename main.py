@@ -1,9 +1,10 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v2.1 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v2.4 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
 
+import math
 import streamlit as st
 from bj_header import render_header  # 공통 헤더 (Writer Engine 기준)
 import anthropic
@@ -158,7 +159,8 @@ hr{border-color:var(--border)!important;}
 def init():
     d = {"step":0,"concept":None,"arc":None,"blocks":{},
          "convert_result":None,"block_modes":{},"pilot_text":None,
-         "producer_note":"","selected_block":None}
+         "producer_note":"","selected_block":None,
+         "premise":"","premise_check":None,"block_checks":{}}
     for k,v in d.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -387,7 +389,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.1 · {datetime.now().strftime('%Y-%m-%d')}")
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.4 · {datetime.now().strftime('%Y-%m-%d')}")
     r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
@@ -426,15 +428,18 @@ CAT_COLOR = {
 
 
 def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder):
-    """4회 청크 호출로 100화 아크를 생성하고 병합한다. 실패 시 1회 자동 재시도."""
-    total_chunks = 4
+    """25화씩 청크 호출로 아크를 생성하고 병합한다. 총 화수 20~100. 실패 시 1회 자동 재시도."""
+    total_chunks = math.ceil(int(total_eps) / 25)
     all_blocks = []
     all_milestones = []
     all_summaries = []
     prev_summary = ""
     subtitle_style = st.session_state.get("subtitle_key", P.DEFAULT_SUBTITLE)
     lead = st.session_state.get("lead_key", P.DEFAULT_LEAD)
-    paywall_ep = st.session_state.get("paywall_key", P.DEFAULT_PAYWALL)
+    paywall_ep = int(st.session_state.get("paywall_key", P.DEFAULT_PAYWALL))
+    target = st.session_state.get("target_key", P.DEFAULT_TARGET)
+    ai_mode = bool(st.session_state.get("ai_mode_key", False))
+    premise = st.session_state.get("premise", "")
     sub_max = P.SUBTITLE_STYLES[subtitle_style]["max_chars"]
     sub_limit = f"MAX {sub_max} chars Korean" if sub_max else "empty string"
 
@@ -452,9 +457,10 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
                         chunk=chunk, total_chunks=total_chunks,
                         prev_summary=prev_summary,
                         subtitle_style=subtitle_style,
-                        lead=lead, paywall_ep=paywall_ep),
+                        lead=lead, paywall_ep=paywall_ep,
+                        target=target, ai_mode=ai_mode, premise=premise),
                     MAX_TOKENS_ARC,
-                    system=f"You are a concise JSON generator for a 100-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean. 5) first_subtitle: {sub_limit}. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL 5 blocks with ALL 5 episodes each. Never truncate."
+                    system=f"You are a concise JSON generator for a {int(total_eps)}-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean. 5) first_subtitle: {sub_limit}. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL {(end_ep - start_ep + 1) // 5} blocks of this chunk with ALL 5 episodes each. Never truncate."
                 )
             result = safe_json(raw)
             if result and result.get("blocks"):
@@ -563,7 +569,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.3 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.4 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
@@ -581,33 +587,119 @@ with st.expander("🎬 프로듀서 노트 — 모든 단계에 반영됩니다"
     if pn != st.session_state.producer_note:
         st.session_state.producer_note = pn
 
-# ─── 작품 톤 · 주인공 향 · 과금 관문 · 첫 자막 형식 (전 단계 공통) ────────
+# ─── 공통 설정 (전 단계 공통) ────────────────────
 # 컨셉을 만들기 전에 고릅니다. 중간에 바꾸면 이미 만든 컨셉·아크와 어긋납니다.
-col_tone, col_lead, col_pay, col_sub = st.columns(4)
-with col_lead:
-    lead_key = st.selectbox(
-        "주인공 향", list(P.LEAD_RULES.keys()),
-        index=list(P.LEAD_RULES.keys()).index(P.DEFAULT_LEAD),
-        format_func=lambda x: P.LEAD_RULES[x]["name"], key="lead_key")
-    st.caption(P.LEAD_RULES[lead_key]["desc"])
-with col_pay:
-    paywall_key = st.selectbox(
-        "첫 과금 관문", list(P.PAYWALL_OPTIONS.keys()),
-        index=list(P.PAYWALL_OPTIONS.keys()).index(P.DEFAULT_PAYWALL),
-        format_func=lambda x: P.PAYWALL_OPTIONS[x]["name"], key="paywall_key")
-    st.caption(P.PAYWALL_OPTIONS[paywall_key]["desc"])
+col_tone, col_lead, col_sub = st.columns(3)
 with col_tone:
     tone_key = st.selectbox(
         "작품 톤", list(P.TONE_RULES.keys()),
         index=list(P.TONE_RULES.keys()).index(P.DEFAULT_TONE),
         format_func=lambda x: P.TONE_RULES[x]["name"], key="tone_key")
     st.caption(P.TONE_RULES[tone_key]["desc"])
+with col_lead:
+    lead_key = st.selectbox(
+        "주인공 향", list(P.LEAD_RULES.keys()),
+        index=list(P.LEAD_RULES.keys()).index(P.DEFAULT_LEAD),
+        format_func=lambda x: P.LEAD_RULES[x]["name"], key="lead_key")
+    st.caption(P.LEAD_RULES[lead_key]["desc"])
 with col_sub:
     subtitle_key = st.selectbox(
         "첫 자막 형식", list(P.SUBTITLE_STYLES.keys()),
         index=list(P.SUBTITLE_STYLES.keys()).index(P.DEFAULT_SUBTITLE),
         format_func=lambda x: P.SUBTITLE_STYLES[x]["name"], key="subtitle_key")
     st.caption(P.SUBTITLE_STYLES[subtitle_key]["desc"])
+
+col_pay, col_target, col_ai = st.columns(3)
+with col_pay:
+    paywall_key = int(st.number_input(
+        "첫 과금 관문 (화)", min_value=P.PAYWALL_MIN, max_value=P.PAYWALL_MAX,
+        value=P.DEFAULT_PAYWALL, step=1, key="paywall_key"))
+    st.caption(f"무료로 보여 주는 마지막 화입니다. EP {paywall_key}의 끝에서 끊고 EP {paywall_key + 1}부터 결제. 무료 5화형이면 5.")
+with col_target:
+    target_key = st.text_input("타겟", value=P.DEFAULT_TARGET, key="target_key")
+    st.caption("주인공의 나이와 처지를 이 타겟에 맞춥니다.")
+with col_ai:
+    ai_mode_key = st.toggle("AI 제작 모드", value=False, key="ai_mode_key")
+    st.caption("얼굴 4명·세트 5곳 이하, 몸싸움은 소리와 암전, 침대 2인 금지, 식탁·클로즈업·손·소품 위주.")
+    auto_check_key = st.toggle("집필 후 자동 점검", value=True, key="auto_check_key")
+    st.caption("대사 0줄·혼자 씬 10% 초과·화면 인서트 1/3 초과면 다시 씁니다.")
+
+
+def run_premise_check(premise):
+    """한 문장 전제에 바닥·뒤집는 장치·약속된 쾌감이 있는지 점검해 세션에 담는다."""
+    raw = call_claude(P.build_premise_check_prompt(premise), 1200)
+    res = safe_json(raw) or {}
+    st.session_state.premise_check = {"premise": premise, "result": res}
+    return res
+
+
+def show_premise_check():
+    """마지막 전제 점검 결과를 화면에 보여 준다."""
+    pc = st.session_state.get("premise_check")
+    if not pc or not pc.get("result"):
+        return
+    r = pc["result"]
+    rows = [("바닥", r.get("floor")), ("뒤집는 장치", r.get("device")), ("약속된 쾌감", r.get("promise"))]
+    body = "".join(
+        f'<div style="font-size:.82rem;margin:.15rem 0">{"✅" if v else "❌"} <b>{k}</b> — {v or "전제에 없음"}</div>'
+        for k, v in rows)
+    st.markdown(f'<div class="callout"><div class="cl">전제 점검</div>{body}</div>', unsafe_allow_html=True)
+    if not r.get("pass"):
+        if r.get("advice"):
+            st.warning(r["advice"])
+        if r.get("rewrite"):
+            st.info(f"고쳐 쓴 예: {r['rewrite']}")
+
+
+def stream_block(prompt, label, key_prefix):
+    """블록 대본을 스트리밍으로 받아 온다."""
+    rt = ""
+    ph = st.empty()
+    for chunk in call_stream(prompt, MAX_TOKENS_BLOCK, model=MODEL_WRITE):
+        rt += chunk
+        if len(rt) % 200 < 10:
+            ph.text_area(label, rt, height=200, key=f"{key_prefix}_{len(rt)}")
+    ph.empty()
+    return rt
+
+
+def write_block_checked(make_prompt, concept, bn):
+    """블록을 쓰고 자동 점검한다. 걸리면 최대 2번 다시 쓴다.
+    make_prompt(rewrite_note) -> 프롬프트 문자열. 돌려주는 값: (대본, 점검 결과)"""
+    rt = stream_block(make_prompt(""), f"블록{bn} 집필 중...", f"s_{bn}_0")
+    check = P.check_script(rt, concept, ai_mode=ai_mode_key)
+    tries = 0
+    while auto_check_key and not check["ok"] and tries < 2:
+        tries += 1
+        st.warning(f"자동 점검 불합격 — 다시 씁니다 ({tries}/2)\n\n" + "\n".join(f"- {i}" for i in check["issues"][:6]))
+        rt2 = stream_block(make_prompt(P.build_rewrite_note(check["issues"], rt)),
+                           f"블록{bn} 다시 쓰는 중... ({tries}/2)", f"s_{bn}_{tries}")
+        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key)
+        if len(check2["issues"]) <= len(check["issues"]):   # 더 나은 쪽을 남긴다
+            rt, check = rt2, check2
+    check["rewrites"] = tries
+    return rt, check
+
+
+def show_block_check(bn):
+    """블록의 자동 점검 결과를 보여 준다."""
+    ck = st.session_state.block_checks.get(bn)
+    if not ck:
+        return
+    stt = ck.get("stats", {})
+    line = (f"씬 {stt.get('scenes', 0)}개 중 혼자 씬 {stt.get('solo_scenes', 0)}개 · "
+            + " · ".join(f"EP{e['ep']} 대사 {e['dialogue']}줄" for e in stt.get("per_ep", [])))
+    if ck.get("ok"):
+        st.success(f"자동 점검 통과 (다시 쓴 횟수 {ck.get('rewrites', 0)}) — {line}")
+    else:
+        st.warning(f"자동 점검에서 남은 문제 (다시 쓴 횟수 {ck.get('rewrites', 0)}) — {line}\n\n"
+                   + "\n".join(f"- {i}" for i in ck.get("issues", [])))
+
+
+def common_opts():
+    """모든 프롬프트 빌더에 함께 넘기는 공통 설정."""
+    return dict(tone=tone_key, subtitle_style=subtitle_key, lead=lead_key,
+                paywall_ep=paywall_key, target=target_key, ai_mode=ai_mode_key)
 
 
 def block_has_paywall(bn):
@@ -650,6 +742,25 @@ with tab_create:
     # ── STEP 1: 컨셉 ──────────────────────────────
     st.markdown('<div class="section-header">📝 컨셉 설정 <span class="en">STEP 1 · CONCEPT</span></div>', unsafe_allow_html=True)
 
+    premise = st.text_area(
+        "한 문장 전제",
+        placeholder="바닥, 뒤집는 장치, 약속된 쾌감이 한 문장(길어도 세 문장)에 들어가야 합니다.\n"
+                    "예: 가진 것 없이 쫓겨난 며느리가(바닥) 죽기 전날로 돌아와(뒤집는 장치) 자신을 죽인 사람 대신 그 집의 전 재산을 차지한다(약속된 쾌감).",
+        height=80, key="premise_input")
+    st.session_state.premise = premise
+    col_pc1, col_pc2 = st.columns([1, 3])
+    with col_pc1:
+        if st.button("🔎 전제 점검", use_container_width=True):
+            if premise.strip():
+                with st.spinner("전제 점검 중..."):
+                    run_premise_check(premise)
+            else:
+                st.error("전제를 먼저 입력하세요.")
+    with col_pc2:
+        skip_premise = st.checkbox("전제 점검에 걸려도 그대로 컨셉 생성", value=False, key="skip_premise")
+    if (st.session_state.premise_check or {}).get("premise") == premise:
+        show_premise_check()
+
     formula_options = {
         "재벌복수":"👑 재벌 복수 — 신분격차+출생비밀+지위역전",
         "능력각성":"⚡ 능력 각성 — 1화 능력 발현+숨긴 정체",
@@ -683,7 +794,7 @@ with tab_create:
                 ["family","teen","adult"],
                 format_func=lambda x:{"family":"👨‍👩‍👧 전체가","teen":"🔞 15세+","adult":"🔞 19+"}[x],
                 index=1, key="rtg")
-        total_eps = st.selectbox("총 에피소드", [80,90,100], index=2)
+        total_eps = st.selectbox("총 에피소드", [20,30,50,80,90,100], index=5)
 
         rating_info = P.CONTENT_RATING_RULES[rating]
         st.markdown(
@@ -729,9 +840,25 @@ with tab_create:
         placeholder="공식 변형 또는 특별한 설정", height=50)
 
     if st.button("🧠 컨셉 + 도파민 + 감초 설계 생성", type="primary", use_container_width=True):
-        if not protagonist or not villain or not season_question:
-            st.error("주인공 / 악역 / 시즌 질문을 모두 입력하세요.")
+        premise_ok = True
+        if premise.strip():
+            pc = st.session_state.premise_check
+            if not pc or pc.get("premise") != premise:
+                with st.spinner("전제 점검 중..."):
+                    run_premise_check(premise)
+            res = (st.session_state.premise_check or {}).get("result") or {}
+            premise_ok = bool(res.get("pass")) or skip_premise or not res
+        if not premise.strip() and not (protagonist and villain and season_question):
+            st.error("한 문장 전제를 입력하세요. 전제가 없으면 주인공 / 악역 / 시즌 질문을 모두 입력해야 합니다.")
+        elif paywall_key > total_eps - 3:
+            st.error(f"첫 과금 관문(EP {paywall_key})이 총 {total_eps}화에 비해 너무 뒤입니다. EP {total_eps - 3} 이하로 낮추세요.")
+        elif not premise_ok:
+            show_premise_check()
+            st.error("전제에 빠진 것이 있습니다. 전제를 고치거나 '전제 점검에 걸려도 그대로 컨셉 생성'을 체크하세요.")
         else:
+            protagonist = protagonist or "전제에서 설계한다."
+            villain = villain or "전제에서 설계한다."
+            season_question = season_question or "전제에서 뽑는다."
             combined = custom_idea
             if supporting_hint:
                 combined += f"\n[감초 힌트]\n{supporting_hint}"
@@ -741,8 +868,8 @@ with tab_create:
                                            secrets or "자동 생성", season_question,
                                            combined, market, rating,
                                            producer_note=st.session_state.producer_note,
-                                           tone=tone_key, subtitle_style=subtitle_key,
-                                           lead=lead_key, paywall_ep=paywall_key),
+                                           premise=premise, total_eps=total_eps,
+                                           **common_opts()),
                     MAX_TOKENS_CONCEPT
                 )
                 result = safe_json(raw)
@@ -910,7 +1037,8 @@ with tab_create:
         st.markdown("---")
         st.markdown('<div class="section-header">📊 100화 아크 설계 <span class="en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
 
-        if st.button("📊 100화 아크 + 도파민 마일스톤 생성 (4회 분할)", type="primary", use_container_width=True):
+        _n_eps = int(st.session_state.concept.get("total_eps", 100))
+        if st.button(f"📊 {_n_eps}화 아크 + 도파민 마일스톤 생성 ({math.ceil(_n_eps / 25)}회 분할)", type="primary", use_container_width=True):
             total = st.session_state.concept.get("total_eps",100)
             arc_progress = st.empty()
             result = generate_arc_chunks(
@@ -981,7 +1109,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.1 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.4 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1177,6 +1305,7 @@ with tab_create:
 
             if is_done:
                 st.success(f"블록{bn} 집필 완료")
+                show_block_check(bn)
                 with st.expander(f"📖 블록{bn} 대본 보기", expanded=False):
                     st.markdown(highlight_script(st.session_state.blocks[bn]), unsafe_allow_html=True)
                 col_dl, col_re, col_del = st.columns(3)
@@ -1190,10 +1319,12 @@ with tab_create:
                 with col_re:
                     if st.button(f"🔄 블록{bn} 다시 쓰기", key=f"re_{bn}", use_container_width=True):
                         del st.session_state.blocks[bn]
+                        st.session_state.block_checks.pop(bn, None)
                         st.rerun()
                 with col_del:
                     if st.button(f"🗑️ 삭제", key=f"del_{bn}", use_container_width=True):
                         del st.session_state.blocks[bn]
+                        st.session_state.block_checks.pop(bn, None)
                         st.session_state.selected_block = None
                         st.rerun()
             else:
@@ -1206,20 +1337,16 @@ with tab_create:
                         t = st.session_state.blocks[bn-1]
                         prev_s = t[-300:] if len(t)>300 else t
                     with st.spinner(f"블록{bn} {mode_disp} 각본 집필 중... (Opus)"):
-                        pt = P.build_block_prompt(
-                            st.session_state.concept, blk, bn, prev_s,
-                            emotional_modes=default_modes,
-                            producer_note=st.session_state.producer_note,
-                            tone=tone_key, subtitle_style=subtitle_key,
-                            lead=lead_key, paywall_ep=paywall_key)
-                        rt = ""
-                        ph = st.empty()
-                        for chunk in call_stream(pt, MAX_TOKENS_BLOCK, model=MODEL_WRITE):
-                            rt += chunk
-                            if len(rt) % 200 < 10:
-                                ph.text_area(f"블록{bn} 집필 중...", rt, height=200,
-                                              key=f"s_{bn}_{len(rt)}")
+                        def make_prompt(rewrite_note="", _blk=blk, _bn=bn, _prev=prev_s, _modes=default_modes):
+                            return P.build_block_prompt(
+                                st.session_state.concept, _blk, _bn, _prev,
+                                emotional_modes=_modes,
+                                producer_note=st.session_state.producer_note,
+                                premise=st.session_state.premise,
+                                rewrite_note=rewrite_note, **common_opts())
+                        rt, check = write_block_checked(make_prompt, st.session_state.concept, bn)
                         st.session_state.blocks[bn] = rt
+                        st.session_state.block_checks[bn] = check
                         st.rerun()
 
         # 집필된 블록 요약 (상세는 블록 선택 패널에서)
@@ -1242,7 +1369,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.1\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.4\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1334,8 +1461,7 @@ with tab_convert:
                     P.build_convert_prompt(source_text, cv_formula, cv_eps,
                                            cv_intensity, preserve_elements, cv_market, cv_rating,
                                            producer_note=st.session_state.producer_note,
-                                           tone=tone_key, subtitle_style=subtitle_key,
-                                           lead=lead_key, paywall_ep=paywall_key),
+                                           **common_opts()),
                     MAX_TOKENS_CONVERT
                 )
                 result = safe_json(raw)
@@ -1438,8 +1564,7 @@ with tab_convert:
                     pilot_prompt = P.build_pilot_prompt(
                         cr, source_text or "", cv_market, cv_rating,
                         producer_note=st.session_state.producer_note,
-                        formula_key=cv_formula, tone=tone_key, subtitle_style=subtitle_key,
-                        lead=lead_key, paywall_ep=paywall_key)
+                        formula_key=cv_formula, **common_opts())
                     pilot_result = ""
                     pilot_ph = st.empty()
                     for chunk in call_stream(pilot_prompt, MAX_TOKENS_PILOT, model=MODEL_WRITE):
@@ -1479,7 +1604,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v2.1 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v2.4 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -1554,6 +1679,6 @@ with tab_convert:
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.3 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.4 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )

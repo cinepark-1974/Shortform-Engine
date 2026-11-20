@@ -1,11 +1,15 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v2.3 — prompt.py
+👖 BLUE JEANS SHORTFORM ENGINE v2.4 — prompt.py
 The Ultimate Shortform Drama Engine
 막장 공식 × 도파민 최대화 × 25감정 모드 × 글로벌 시장 × 감초 시스템
 v2.2: 공식별 예시 묶음 · 톤 선택 · 첫 자막 형식 선택 · EP1 기준 · 작은 응징
 v2.3: 주인공 향(남성향/여성향) · 과금 관문 위치 선택 · 공식 2개 추가(번개 결혼, 이혼 후 후회남)
+v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반전 · 집필 후 자동 점검 · AI 제작 모드 · 타겟 · 과금 관문 숫자 입력
 © 2026 BLUE JEANS PICTURES
 """
+
+import re
+
 
 # ─── 모델 분업 ───────────────────────────────────────
 MODEL_WRITE = "claude-opus-4-6"    # 블록 집필 — 완성도 최우선
@@ -88,8 +92,8 @@ LEAD_RULES = {
 - 악역은 증거가 나와도 믿지 않는다. '연기다.' '운이다.' '누가 뒤를 봐줬다.' 그래서 다음 화에 또 덤빈다.
 - 주인공은 항변하지 않는다. 말수가 적다. 상대가 떠들게 두고 한 줄로 끝낸다.
   예시에서 주인공의 말이 잘리는 대목은 주인공의 침묵이나 짧은 한 줄로 바꿔 쓴다.
-- EP1 전용 기준 ①의 거부당하는 그림은 문전박대, 자리 없음, 무시로 찍는다. 몸에 손이 닿으려는 순간 주인공이 멈춰 세운다.
-- EP1 전용 기준 ④ 강자의 얼굴은, 주인공의 진짜 힘을 아는 인물이 주인공에게 먼저 고개를 숙이는 얼굴로 채운다.""",
+- EP1의 첫 충돌은 문전박대, 자리 없음, 무시로 찍는다. 몸에 손이 닿으려는 순간 주인공이 멈춰 세운다.
+- EP1 안에, 주인공의 진짜 힘을 아는 인물이 주인공에게 먼저 고개를 숙이는 얼굴을 한 컷 넣는다.""",
         "concept_hint": "주인공은 정체를 숨긴 강자로 설계한다. start_state는 '얼마나 얕보이는가'로 쓴다. 맞거나 꿇는 설정을 넣지 않는다. 악역은 증거를 봐도 믿지 않는 사람.",
         "arc_hint": "억압은 짧게. 2~3화마다 누군가 주인공을 깔보다 꺾인다. 주인공이 맞거나 꿇는 화를 넣지 않는다.",
     },
@@ -103,17 +107,32 @@ LEAD_RULES = {
 # ═══════════════════════════════════════════════════════════════
 
 DEFAULT_PAYWALL = 10
+PAYWALL_MIN, PAYWALL_MAX = 3, 60
 
+# 자주 쓰는 위치(참고용). 화면에서는 숫자를 직접 넣는다.
 PAYWALL_OPTIONS = {
-    8:  {"name": "8화",  "desc": "해외 앱형. 앞부분을 가장 짧게 쓰고 8화에서 끊는다."},
+    5:  {"name": "5화",  "desc": "무료 5화형. 5화 끝에서 끊고 6화부터 결제."},
+    8:  {"name": "8화",  "desc": "해외 앱형. 앞부분을 짧게 쓰고 8화에서 끊는다."},
     10: {"name": "10화", "desc": "기본. 9~10화에 가장 큰 떡밥이 터지는 순간을 둔다."},
-    16: {"name": "16화", "desc": "이전 버전(v2.2까지)의 위치. 길게 쌓고 15~16화에서 끊는다."},
+    16: {"name": "16화", "desc": "v2.2까지의 위치. 길게 쌓고 15~16화에서 끊는다."},
 }
+
+
+def valid_paywall(paywall_ep):
+    """과금 관문 화수를 정수로 맞춘다. 범위를 벗어나면 기본값."""
+    try:
+        ep = int(paywall_ep)
+    except (TypeError, ValueError):
+        return DEFAULT_PAYWALL
+    return ep if PAYWALL_MIN <= ep <= PAYWALL_MAX else DEFAULT_PAYWALL
 
 
 def fill_paywall(text, paywall_ep=None):
     """글 안의 ⟦PW⟧ 표시를 선택한 과금 관문 화수로 바꾼다."""
-    ep = paywall_ep if paywall_ep in PAYWALL_OPTIONS else DEFAULT_PAYWALL
+    ep = valid_paywall(paywall_ep)
+    if ep - 1 < 6:
+        # 과금 관문이 이르면 'EP 6~(관문 직전)' 구간이 성립하지 않는다.
+        text = text.replace("EP 6~⟦PW-1⟧", "과금 관문 직전까지").replace("EP 2~5 ", f"EP 2~{max(2, ep - 1)} ")
     for mark, value in (("⟦PW-1⟧", ep - 1), ("⟦PW+1⟧", ep + 1), ("⟦PW+4⟧", ep + 4),
                         ("⟦PW+5⟧", ep + 5), ("⟦PW⟧", ep)):
         text = text.replace(mark, str(value))
@@ -123,11 +142,165 @@ def fill_paywall(text, paywall_ep=None):
 def _paywall_filled(fn):
     """프롬프트 빌더에 paywall_ep 인자를 달아 주고, 결과의 ⟦PW⟧ 표시를 채운다."""
     def wrapper(*args, paywall_ep=None, **kwargs):
-        ep = paywall_ep if paywall_ep in PAYWALL_OPTIONS else DEFAULT_PAYWALL
+        ep = valid_paywall(paywall_ep)
         return fill_paywall(fn(*args, _pw=ep, **kwargs), ep)
     wrapper.__name__ = fn.__name__
     wrapper.__doc__ = fn.__doc__
     return wrapper
+
+
+# ═══════════════════════════════════════════════════════════════
+#  총 화수에 맞춘 구간표 (v2.4) — 20/30/50/80/90/100화 공용
+# ═══════════════════════════════════════════════════════════════
+
+def stage_plan(total_eps=100, paywall_ep=None):
+    """과금 관문 뒤의 구간 경계를 총 화수에 맞춰 계산한다.
+    100화·관문 10화면 (50, 84) — 기존 100화 기준(50, 85)과 같은 비율이다."""
+    pw = valid_paywall(paywall_ep)
+    n = max(int(total_eps), pw + 3)
+    rem = n - pw
+    s1 = pw + max(1, round(rem * 0.45))
+    s2 = pw + max(2, round(rem * 0.82))
+    s2 = min(max(s2, s1 + 1), n - 1)
+    return {"n": n, "pw": pw, "s1": s1, "s2": s2}
+
+
+def stage_table(total_eps=100, paywall_ep=None):
+    """총 화수 기준 구간표를 (시작화, 끝화, 내용) 목록으로 돌려준다."""
+    p = stage_plan(total_eps, paywall_ep)
+    n, pw, s1, s2 = p["n"], p["pw"], p["s1"], p["s2"]
+    rows = []
+    if pw - 2 >= 1:
+        rows.append((1, pw - 2, "도입+갈등 구축. 주인공 낙차 최대화, 악역의 구체적 나쁜 짓, 3화마다 작은 응징."))
+    rows.append((max(1, pw - 1), pw, "과금 관문. 지금까지 쌓은 가장 큰 떡밥이 터지는 순간에 멈춘다."))
+    rows.append((pw + 1, s1, "과금 직후 보상 → 반격 시작 → 새 비밀. 감정 시소 본격화."))
+    rows.append((s1 + 1, s2, "최대 위기 → 배신 확인 → 숨겨진 것이 드러남 → 모든 것을 잃는 순간."))
+    rows.append((s2 + 1, n, f"최종 역전 → 악역 몰락 → 결말. EP {n}이 마지막 화다."))
+    return rows
+
+
+def stage_text(total_eps=100, paywall_ep=None, start_ep=1, end_ep=None):
+    """구간표 가운데 start_ep~end_ep에 걸치는 줄만 글로 돌려준다."""
+    end_ep = end_ep or total_eps
+    lines = []
+    for a, b, text in stage_table(total_eps, paywall_ep):
+        if b < start_ep or a > end_ep:
+            continue
+        lines.append(f"EP {a}~{b}: {text}" if a != b else f"EP {a}: {text}")
+    return "\n".join(lines)
+
+
+def scale_arc_hint(hint, total_eps=100, paywall_ep=None):
+    """공식의 아크 힌트(100화 기준 EP 50·85·100)를 총 화수에 맞게 바꾼다."""
+    p = stage_plan(total_eps, paywall_ep)
+    if p["n"] == 100:
+        return hint
+    out = hint.replace("EP 51~85", f"EP {p['s1'] + 1}~{p['s2']}")
+    out = out.replace("EP 86~100", f"EP {p['s2'] + 1}~{p['n']}")
+    out = out.replace("⟦PW+1⟧~50", f"⟦PW+1⟧~{p['s1']}")
+    return out
+
+
+def cliffhanger_plan(total_eps=100, paywall_ep=None):
+    """총 화수에 맞춘 클리프행어 배치표."""
+    p = stage_plan(total_eps, paywall_ep)
+    n, pw, s1, s2 = p["n"], p["pw"], p["s1"], p["s2"]
+    rows = ["[클리프행어 배치]"]
+    if pw - 2 >= 1:
+        rows.append(f"EP 1~{pw - 2}: Slap/Reveal — 관객 잡기, 몰입 구축")
+    rows.append(f"EP {max(1, pw - 1)}~{pw}: Reversal/Choice — 과금 전환점 (역대급)")
+    rows.append(f"EP {pw + 1}~{s1}: 순환 — 중독 유지, 새 갈등")
+    rows.append(f"EP {s1 + 1}~{s2}: Reversal/Tears — 클라이맥스")
+    if n - s2 >= 3:
+        rows.append(f"EP {s2 + 1}~{n - 1}: 대반전")
+        rows.append(f"EP {n}: 결말. 마지막 화의 끝은 여운 또는 다음 시즌 떡밥")
+    else:
+        rows.append(f"EP {s2 + 1}~{n}: 대반전 → 결말. EP {n}의 끝은 여운 또는 다음 시즌 떡밥")
+    rows.append("직전 2화와 같은 유형을 연속으로 쓰지 않는다.")
+    return "\n".join(rows)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  TARGET — 타겟 입력 (v2.4)
+# ═══════════════════════════════════════════════════════════════
+
+DEFAULT_TARGET = "35~44세 여성"
+
+
+def target_block(target=""):
+    target = (target or "").strip() or DEFAULT_TARGET
+    return (f"[타겟: {target}]\n"
+            f"- 주인공의 나이를 타겟의 나이대 안에 둔다. 타겟이 '내 얘기'로 볼 수 있는 처지로 설계한다.\n"
+            f"- 굴욕과 쾌감의 소재는 이 타겟이 실제로 겪는 일에서 가져온다. (가족, 돈, 자리, 체면)\n"
+            f"- 말투와 호칭도 이 나이대의 것으로 쓴다.")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  AI 제작 모드 (v2.4) — AI 영상 모델로 만들 대본의 제약
+# ═══════════════════════════════════════════════════════════════
+
+AI_MODE_RULES = """[AI 제작 모드 — 이 대본은 AI 영상 모델로 만든다. 작품 톤보다 먼저다]
+- 얼굴이 나오는 인물은 작품 전체에서 4명 이하. 그 밖의 사람은 목소리, 뒷모습, 손, 문 너머의 소리로만 나온다.
+  구경꾼이 필요하면 수군거리는 소리로 처리한다. 얼굴을 주지 않는다.
+- 세트는 작품 전체에서 5곳 이하. 같은 세트를 반복해 쓴다. 새 장소가 필요하면 기존 세트의 다른 구석을 쓴다.
+- 몸이 부딪히는 액션(밀기, 몸싸움, 뺨, 넘어짐)은 닿는 순간을 찍지 않는다.
+  손이 올라간다 → (암전) + (소리만) → 맞은 뒤의 얼굴. 지문에 '(암전)'과 '(소리만)'을 적는다.
+- 한 화면에 두 사람이 침대에 함께 있는 그림은 쓰지 않는다. 스틸·영상 모델의 검열에 걸린다.
+  침실 장면은 한 사람만 찍거나 문 앞에서 끝낸다.
+- 그림의 기본은 식탁, 얼굴 클로즈업, 손, 소품이다. 한 컷에 하나만 보여 준다.
+- 휴대폰·노트북 화면 속 글자를 읽히는 인서트를 쓰지 않는다. 내용은 인물이 소리 내어 말한다."""
+
+AI_MODE_CONCEPT = """[AI 제작 모드 — 컨셉 설계 제약]
+- 얼굴이 나오는 인물은 주인공과 악역을 포함해 4명 이하로 설계한다.
+  helper나 rival이 필요 없으면 name을 빈 문자열로 둔다. supporting_cast는 0~2명. (이 모드에서는 '최소 3명' 규칙을 쓰지 않는다)
+- location_design의 main_locations와 sub_locations를 합쳐 5곳 이하. 식탁이 있는 세트를 반드시 하나 넣는다.
+- 굴욕과 응징은 몸싸움이 아니라 말, 자리, 소품으로 설계한다."""
+
+
+def ai_block(ai_mode=False):
+    return f"\n{AI_MODE_RULES}\n" if ai_mode else ""
+
+
+# ═══════════════════════════════════════════════════════════════
+#  한 문장 전제 점검 (v2.4)
+# ═══════════════════════════════════════════════════════════════
+
+def premise_block(premise=""):
+    premise = (premise or "").strip()
+    if not premise:
+        return ""
+    return (f"\n[한 문장 전제 — 이 작품의 뿌리. 로그라인, EP1, 아크가 모두 여기서 나온다]\n{premise}\n"
+            f"전제에 적힌 인물, 사건, 숫자를 바꾸지 않는다. 전제에 없는 설정으로 전제를 덮지 않는다.\n")
+
+
+def build_premise_check_prompt(premise):
+    """한 문장 전제에 바닥·뒤집는 장치·약속된 쾌감이 들어 있는지 점검시킨다."""
+    return f"""[TASK] 숏폼 드라마의 '한 문장 전제' 점검
+
+[전제]
+{premise}
+
+[점검 기준 — 세 가지가 전제 안에 글자로 들어 있어야 한다. 짐작으로 채워 주지 않는다]
+1. 바닥: 주인공이 떨어진 가장 낮은 자리. (무엇을 잃었나, 얼마나 억울한가)
+2. 뒤집는 장치: 무엇으로 판을 뒤집는가. (회귀, 숨긴 신분, 능력, 증거, 유산 조건 같은 구체적인 장치)
+3. 약속된 쾌감: 관객이 끝까지 보면 무엇을 보게 되는가. (누가 무엇을 차지하고 누가 무너지는가. 걸린 것의 크기)
+
+[출력 — JSON만. 설명과 마크다운 금지]
+{{
+  "floor": "전제에서 찾은 바닥. 없으면 빈 문자열",
+  "device": "전제에서 찾은 뒤집는 장치. 없으면 빈 문자열",
+  "promise": "전제에서 찾은 약속된 쾌감. 없으면 빈 문자열",
+  "pass": true,
+  "missing": ["빠진 항목 이름. 바닥 / 뒤집는 장치 / 약속된 쾌감 중에서"],
+  "advice": "빠진 것이 있으면 무엇을 한 구절 더 넣어야 하는지 한 문장. 없으면 빈 문자열",
+  "rewrite": "빠진 것이 있을 때만: 원래 전제의 인물과 사건을 그대로 두고 빠진 것만 채운 전제 한두 문장. 없으면 빈 문자열"
+}}
+
+규칙:
+- floor, device, promise는 전제에 실제로 있는 말을 근거로 쓴다.
+- 셋 다 있으면 pass는 true, missing은 빈 배열.
+- 하나라도 없으면 pass는 false.
+"""
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -935,19 +1108,19 @@ def pick_examples(formula_key, tone, lead):
 #  EP1 전용 기준 / 혼자 씬 한도 / 작은 응징 (v2.2)
 # ═══════════════════════════════════════════════════════════════
 
-EP1_RULES = """[EP1 전용 기준 — 5개 모두 통과해야 EP1이다]
-① 3초 안: 주인공이 거부당하는 그림으로 연다.
-   밀려난다 / 끌려 나간다 / 문이 눈앞에서 닫힌다 / 자리에서 주인공 것만 빠져 있다.
-   설명도 일상도 없이 그 그림이 첫 컷이다.
-② 15초 안: 타격 대사. 대사 세 번째 줄 안에 악역이 주인공의 가장 아픈 곳을 한 줄로 친다.
-③ 전제 공개: EP1만 본 관객이 '누가 누구에게 무엇을 빼앗겼고 무엇을 되찾으려는 이야기'인지 한 문장으로 말할 수 있어야 한다.
-   판타지·회귀·능력 같은 장르 설정이 있으면 EP1에 전부 알린다.
-   주인공의 숨긴 정체만은 답을 주지 않는다. 암시 1개만 심는다.
-④ 강자의 얼굴: 판을 뒤집을 힘을 가진 인물([강자])의 얼굴이 EP1 안에 나온다.
-   상대역, 후원자, 숨은 권력자 중 이 작품에 해당하는 사람. 이름과 사정은 몰라도 얼굴은 본다.
-⑤ 엔딩 = 주인공의 첫 행동: 당하고 끝나지 않는다. 마지막 장면에서 주인공이 무언가를 한다.
-   찢는다 / 되돌려 준다 / 이름을 적는다 / 전화를 건다 / 돌아서서 다시 들어간다.
-   그 행동 직후, 결과를 보여 주지 않고 끊는다."""
+EP1_RULES = """[EP1 전용 기준 — 6개 모두 통과해야 EP1이다]
+① 3초 안 (첫 지문 1~2줄): 충돌이나 대비로 연다.
+   두 사람이 이미 부딪히고 있거나, 한 화면에 극과 극이 함께 있다. (웃는 사람들 사이의 상복 / 잔칫상 앞의 빈 수저)
+   준비 동작, 일상, 풍경으로 열지 않는다.
+② 10초 안 (대사 네 번째 줄까지): 갈등, 인물 관계, 주인공의 목표가 나온다.
+   누가 누구와 무엇을 두고 싸우는지 대사만 듣고 알 수 있다. 앞뒤 사정은 나중에 푼다.
+③ 30초 안 (첫 씬이 끝나기 전): 첫 반전. 관객이 방금 믿은 것이 한 번 뒤집힌다.
+④ 남녀 주인공이 EP1에 모두 얼굴을 보인다. 로맨스 축이 없는 작품이면 주인공과 주적이 모두 나온다.
+⑤ 작품 전제가 EP1 안에 다 나온다.
+   EP1만 본 관객이 바닥(주인공이 어디까지 떨어졌나), 뒤집는 장치(무엇으로 뒤집나), 약속된 쾌감(끝까지 보면 무엇을 보나)을 한 문장으로 말할 수 있다.
+   회귀·능력·유산 조건 같은 설정은 EP1에 전부 알린다. 주인공이 숨긴 정체가 있다면 그것만 암시 1개로 남긴다.
+⑥ 엔딩은 주인공의 행동이나 적의 한마디. 둘 중 하나로 끝내고 결과는 보여 주지 않는다.
+   설명, 풍경, 혼자 생각에 잠긴 얼굴로 끝내지 않는다."""
 
 SOLO_RULE = """★ 주인공이 혼자 있는 씬은 전체의 10% 이하.
   5화 블록은 씬이 10개 안팎이다. 혼자 있는 씬은 블록에 최대 1개.
@@ -970,8 +1143,8 @@ PAYBACK_RULE = """[작은 응징 규칙 — 과금 관문(EP ⟦PW⟧) 이전에
 #  MASTER SYSTEM PROMPT (v2.2 — 공식·톤·자막 형식에 따라 조립)
 # ═══════════════════════════════════════════════════════════════
 
-_SYSTEM_TEMPLATE = """당신은 BLUE JEANS SHORTFORM ENGINE v2.3이다.
-1~2분 × 80~100화 세로형(9:16) 숏폼 드라마 시나리오를 집필한다.
+_SYSTEM_TEMPLATE = """당신은 BLUE JEANS SHORTFORM ENGINE v2.4이다.
+1~2분 × 20~100화 세로형(9:16) 숏폼 드라마 시나리오를 집필한다.
 목표: 관객이 다음 화를 결제하지 않을 수 없게 만드는 것.
 
 [예시 읽는 법 — 먼저 읽을 것]
@@ -1026,7 +1199,7 @@ PART 3. 집필 절대 규칙
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - 1화 분량 3단계 체계:
   [일반] 그 밖의 화 = 500~800자. 사건 1~2개. 1~2씬.
-  [파일럿] EP1 = 700~1000자. 사건 3~4개. 2~3씬. EP1 전용 기준 5개를 따른다.
+  [파일럿] EP1 = 700~1000자. 사건 3~4개. 2~3씬. EP1 전용 기준 6개를 따른다.
   [과금관문] EP⟦PW-1⟧~⟦PW⟧ = 800~1200자. 사건 2~3개+대반전 1개. 2~3씬. 지금까지 쌓은 가장 큰 떡밥이 터지는 순간에 멈춘다.
   글자 수가 아니라 사건 수가 기준.
   600자에 사건 3개 > 800자에 사건 1개.
@@ -1065,7 +1238,7 @@ PART 3-1. 현실성 + 영상화 규칙 — 지금 기준 × 세로 화면
 <<TONE_BLOCK>>
 
 <<LEAD_BLOCK>>
-
+<<AI_BLOCK>>
 [이 공식의 무대 — 참고. 작품의 장소 설계가 먼저다]
   <<FORMULA_STAGES>>
 
@@ -1190,7 +1363,10 @@ PART 6. 1화 완성 기준 (모든 화 공통)
   ① 상황 변화 1번 이상 (직전 화와 달라진 것)
   ② 캐릭터 선택 1번 이상 (누군가 무언가를 결정하거나 행동)
   ③ 클리프행어 1개 (마지막 줄은 대사 또는 행동 1줄)
-  ※ 첫 화(EP1)는 여기에 더해 [EP1 전용 기준] 5개를 따른다. EP1을 쓰는 블록에서 따로 주어진다.
+  ④ 반전 1번 이상. 관객이 방금 예상한 것과 다른 일이 벌어진다.
+     정보가 뒤집힌다(알던 것이 거짓) / 우위가 뒤집힌다(누르던 쪽이 눌린다) / 편이 뒤집힌다(내 편이 저쪽 사람).
+     반전은 클리프행어와 따로 센다. 화 중간에 한 번, 끝에 한 번이 기본이다.
+  ※ 첫 화(EP1)는 여기에 더해 [EP1 전용 기준] 6개를 따른다. EP1을 쓰는 블록에서 따로 주어진다.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PART 6-1. 도파민을 만드는 대사 패턴 — 관객이 다음 화를 누르게 만드는 대사
@@ -1348,17 +1524,17 @@ PART 9. 촬영 가능 품질 기준 — 이것을 통과해야 최종 원고다
 <<FORMULA_SCENE>>
 
 [교정 포인트]
-a) 첫 컷이 사건의 한가운데다. 주인공이 거부당하는 그림으로 열린다.
-b) 대사 세 번째 줄 안에 악역의 타격 대사가 나온다. 짧다.
+a) 첫 컷이 충돌의 한가운데다. 준비 동작 없이 두 사람이 이미 부딪히고 있다.
+b) 대사 네 번째 줄 안에 누가 누구와 무엇을 두고 싸우는지 나온다. 악역의 말은 짧다.
 c) 주인공의 말은 잘린다. 그러나 마지막에는 한 줄을 끝까지 말한다.
 d) 감초가 한 줄로 구경꾼의 시선을 만든다. 주인공은 혼자가 아니라 사람들 속에서 당한다.
 e) 지문은 물리적 행동만. 감정은 대사와 행동에서 나온다.
 f) 주인공이 행동 하나를 한다. 당하고 끝나지 않는다.
-g) 마지막 줄에 [강자]가 얼굴로 들어온다. 답은 주지 않는다.
+g) 씬 중간에 한 번 뒤집힌다. 마지막 줄은 주인공의 행동 직후, 새 얼굴이 들어오는 순간에 끊는다. 답은 주지 않는다.
 h) 위 예시의 장소·소품·대사는 가져다 쓰지 않는다. 이 작품의 장소와 인물로 같은 강도를 만든다."""
 
 
-def _system_raw(formula_key="", tone=None, subtitle_style=None, lead=None, _pw=DEFAULT_PAYWALL):
+def _system_raw(formula_key="", tone=None, subtitle_style=None, lead=None, _pw=DEFAULT_PAYWALL, ai_mode=False):
     """공식·톤·자막 형식·주인공 향에 맞는 집필 규칙 전문을 조립한다.
 
     - formula_key: MAKJANG_FORMULAS의 키. 그 공식의 예시 묶음만 들어간다.
@@ -1383,6 +1559,7 @@ def _system_raw(formula_key="", tone=None, subtitle_style=None, lead=None, _pw=D
         ("<<SOLO_RULE>>", SOLO_RULE),
         ("<<TONE_BLOCK>>", t["block"]),
         ("<<LEAD_BLOCK>>", LEAD_RULES[lead]["block"]),
+        ("<<AI_BLOCK>>", ai_block(ai_mode)),
         ("<<TONE_VILLAIN_LINE>>", t["villain_line"]),
         ("<<FORMULA_STAGES>>", ex["stages"]),
         ("<<FORMULA_EVIL>>", evil),
@@ -2116,8 +2293,13 @@ def build_concept_prompt(formula_key, protagonist, villain,
                           secrets, season_question,
                           custom_idea="", market="한국", rating="teen",
                           producer_note="", tone=None, subtitle_style=None,
-                          lead=None, _pw=DEFAULT_PAYWALL):
+                          lead=None, _pw=DEFAULT_PAYWALL, target="", ai_mode=False,
+                          premise="", total_eps=100):
     formula = MAKJANG_FORMULAS.get(formula_key, {})
+    ai_concept = f"\n{AI_MODE_CONCEPT}\n" if ai_mode else ""
+    cast_rule = ("- 얼굴이 나오는 인물은 주인공·악역 포함 4명 이하. supporting_cast는 0~2명."
+                 if ai_mode else "- supporting_cast 최소 3명. A/B/C 기능 모두 있어야.")
+    plan = stage_plan(total_eps, _pw)
     lead = lead if lead in LEAD_RULES else DEFAULT_LEAD
     lead_info = LEAD_RULES[lead]
     tone = tone if tone in TONE_RULES else DEFAULT_TONE
@@ -2133,13 +2315,13 @@ def build_concept_prompt(formula_key, protagonist, villain,
     if market in ["글로벌", "중국"]:
         global_block = f"\n{GLOBAL_MARKET_RULES}\n[이 공식 글로벌 특화]\n{formula.get('global_variant', '')}\n"
 
-    return f"""[TASK] 숏폼 드라마 컨셉 설정
-
+    return f"""[TASK] 숏폼 드라마 컨셉 설정 — 총 {plan['n']}화
+{premise_block(premise)}
 [막장 공식]
 {formula.get('name', formula_key)}: {formula.get('desc', '')}
 핵심: {formula.get('hook', '')}
 과금 포인트: {formula.get('paywall', '')}
-타겟: {formula.get('target', '')} | 시장: {market}
+시장: {market}
 도파민 키: {formula.get('dopamine_key', '')}
 이 공식의 무대(참고): {stages}
   ※ 입력된 주인공·악역 설정이 먼저다. 설정에 무대가 없으면 위 무대에서 고른다.
@@ -2158,6 +2340,12 @@ def build_concept_prompt(formula_key, protagonist, villain,
 [첫 과금 관문: EP ⟦PW⟧]
 가장 큰 떡밥은 EP ⟦PW-1⟧~⟦PW⟧에서 터지는 순간에 멈춘다. 그 전에는 3화마다 작은 응징만 준다.
 
+[총 화수: {plan['n']}화]
+{stage_text(total_eps, _pw)}
+비밀의 reveal_ep, 도파민 설계의 화 번호는 모두 EP {plan['n']} 안에서 잡는다.
+
+{target_block(target)}
+{ai_concept}
 [수위 등급: {rating_info['name']}]
 허용: {' / '.join(rating_info['allowed'])}
 금지: {' / '.join(rating_info['forbidden'])}
@@ -2260,8 +2448,9 @@ def build_concept_prompt(formula_key, protagonist, villain,
 {JSON_RULES}
 - paywall_design의 항목 이름(ep16_…, ep20_…)은 그대로 둔다. 이름의 숫자와 상관없이 내용은 과금 관문 EP⟦PW⟧ 기준으로 쓴다.
 - secrets 가운데 가장 큰 비밀의 reveal_ep는 ⟦PW⟧.
-- protagonist.scroll_stop은 주인공이 거부당하는 그림으로 쓴다. (밀려난다 / 끌려 나간다 / 문이 닫힌다 / 주인공 것만 빠져 있다)
-- supporting_cast 최소 3명. A/B/C 기능 모두 있어야.
+- protagonist.scroll_stop은 충돌이나 대비의 그림으로 쓴다. (두 사람이 이미 부딪히고 있다 / 한 화면에 극과 극이 함께 있다)
+- protagonist.age는 타겟의 나이대 안에서 정한다.
+{cast_rule}
 - dialogue_tone은 예시 대사 1개 포함. 추상 설명 금지.
 - villain.specific_evil은 추상어 금지. 실제 행동으로.
 - secrets 정확히 3개.
@@ -2275,8 +2464,9 @@ def build_concept_prompt(formula_key, protagonist, villain,
 @_paywall_filled
 def build_arc_prompt(concept, total_eps=100, producer_note="",
                      chunk=1, total_chunks=4, prev_summary="",
-                     subtitle_style=None, lead=None, _pw=DEFAULT_PAYWALL):
-    """25화씩 4회 호출로 100화 아크를 생성한다.
+                     subtitle_style=None, lead=None, _pw=DEFAULT_PAYWALL,
+                     target="", ai_mode=False, premise=""):
+    """25화씩 나눠 아크를 생성한다. 총 화수는 20~100화.
     chunk=1: EP1~25 (블록1~5), chunk=2: EP26~50 (블록6~10), ...
     """
     formula_key = concept.get("formula", "재벌복수")
@@ -2295,17 +2485,16 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 
     # 청크별 EP 범위 / 블록 범위 / 국면
     blocks_per_chunk = 5
+    total_blocks = (int(total_eps) + 4) // 5
     start_block = (chunk - 1) * blocks_per_chunk + 1
-    end_block = chunk * blocks_per_chunk
+    end_block = min(chunk * blocks_per_chunk, total_blocks)
+    n_blocks = end_block - start_block + 1
     start_ep = (start_block - 1) * 5 + 1
     end_ep = min(end_block * 5, total_eps)
-
-    chunk_phases = {
-        1: "도입+갈등 구축 (EP1~25). 주인공 낙차 최대화 → 악역 구체적 나쁜 짓 → 3화마다 작은 응징 → 과금 관문(EP⟦PW-1⟧~⟦PW⟧) 대반전 → 과금 직후 보상과 새 위기.",
-        2: "중반 전개 (EP26~50). 역전 시작 → 로맨스/삼각관계 → 새 비밀 등장 → 감정 시소 본격화.",
-        3: "클라이맥스 구축 (EP51~75). 최대 위기 → 배신 확인 → 숨겨진 정체 드러남 → All Is Lost.",
-        4: "최종 역전+결말 (EP76~100). 완전한 역전 → 악역 몰락 → 해소 + 시즌2 떡밥."
-    }
+    is_last_chunk = end_ep >= int(total_eps)
+    arc_hint = scale_arc_hint(formula.get('arc_hint', ''), total_eps, _pw)
+    phase_text = stage_text(total_eps, _pw, start_ep, end_ep)
+    last_note = f"\n★ EP {int(total_eps)}이 이 작품의 마지막 화다. 이 청크 안에서 결말을 낸다.\n" if is_last_chunk else ""
 
     prev_block = ""
     if prev_summary:
@@ -2314,8 +2503,9 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
     paywall_note = ""
     if chunk == 1:
         paywall_note = (
-            "\n★ EP1: 주인공이 거부당하는 그림으로 시작한다. 이 작품의 전제를 EP1에 내놓는다. "
-            "판을 뒤집을 강자의 얼굴이 나온다. cliffhanger는 주인공의 첫 행동으로 쓴다.\n"
+            "\n★ EP1: 충돌이나 대비로 시작한다. 이 작품의 전제를 EP1 안에 다 내놓는다. "
+            "남녀 주인공(로맨스 축이 없으면 주인공과 주적)이 모두 나온다. "
+            "cliffhanger는 주인공의 행동이나 적의 한마디로 쓴다.\n"
             "★ EP⟦PW-1⟧~⟦PW⟧은 과금 전환점. 이 청크에서 가장 강한 도파민 장면을 여기에 배치.\n"
             "★ paywall 값은 EP⟦PW-1⟧와 EP⟦PW⟧만 true. 나머지 화는 전부 false.\n"
             f"\n{PAYBACK_RULE}\n"
@@ -2351,14 +2541,23 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 시소 패턴: {dopamine.get('seesaw_pattern','')}
 과금 관문(EP⟦PW⟧) 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
 주인공 향: {lead_info['name']} — {lead_info['arc_hint']}
-{global_block}{pn_block}{prev_block}{paywall_note}
-[이 청크의 국면]
-{chunk_phases.get(chunk, '')}
+{premise_block(premise)}{global_block}{pn_block}{prev_block}{paywall_note}{last_note}
+[이 청크의 국면 — EP {start_ep}~{end_ep}]
+{phase_text}
+
+[전체 구간표 — 총 {int(total_eps)}화]
+{stage_text(total_eps, _pw)}
 
 [아크 힌트]
-{formula.get('arc_hint','')}
+{arc_hint}
+{('※ 과금 관문이 EP ' + str(_pw) + '로 이르다. 아크 힌트의 앞 구간은 EP 1~' + str(_pw) + ' 안으로 압축해서 읽는다. 위 전체 구간표가 먼저다.' if _pw <= 7 else '')}
 
-{CLIFFHANGER_RULES}
+{cliffhanger_plan(total_eps, _pw)}
+
+[매 화 반전]
+- 모든 화에 반전이 1번 이상 있다. summary는 그 화에서 무엇이 뒤집히는지 보이게 쓴다.
+{target_block(target)}
+{('- AI 제작 모드: 얼굴 4명 이하, 세트 5곳 이하. 새 인물과 새 장소를 늘리지 않는다. 몸싸움이 필요한 사건을 짜지 않는다.' if ai_mode else '')}
 
 [도파민 아크 원칙]
 - 매 5화 블록마다 D8 체크리스트 항목 1개 이상
@@ -2366,7 +2565,7 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 - 통쾌함은 예측 불가 타이밍에 (간헐적 강화)
 - 클리프행어 유형 변주: 직전 블록과 같은 유형 연속 금지
 
-[JSON 스키마 — 이 청크의 5블록(25화)만 출력. 간결하게!]
+[JSON 스키마 — 이 청크의 {n_blocks}블록(EP {start_ep}~{end_ep})만 출력. 간결하게!]
 {{
   "chunk": {chunk},
   "chunk_summary": "이 청크 흐름 2~3문장",
@@ -2402,7 +2601,7 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 - chunk_summary: 반드시 3문장 이내.
 - dopamine_milestones: 이 청크 3~5개만. event 15자 이내.
 - 스키마에 없는 필드 절대 금지: recommended_emotion_modes, market_hook, dopamine_moment 쓰지 마라.
-- blocks 정확히 5개 (블록{start_block}~{end_block})
+- blocks 정확히 {n_blocks}개 (블록{start_block}~{end_block})
 - 각 block episodes 정확히 5개
 - block_no는 {start_block}부터 {end_block}까지
 - ep 번호는 {start_ep}부터 {end_ep}까지
@@ -2418,7 +2617,8 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 def build_block_prompt(concept, arc_block, block_no,
                         prev_block_summary="", emotional_modes=None,
                         producer_note="", tone=None, subtitle_style=None,
-                        lead=None, _pw=DEFAULT_PAYWALL):
+                        lead=None, _pw=DEFAULT_PAYWALL, target="", ai_mode=False,
+                        premise="", rewrite_note=""):
     ep_range = arc_block.get("ep_range", f"EP {(block_no-1)*5+1}~{block_no*5}")
     episodes = arc_block.get("episodes", [])
     phase = arc_block.get("phase", "")
@@ -2435,7 +2635,7 @@ def build_block_prompt(concept, arc_block, block_no,
     sub_info = SUBTITLE_STYLES[subtitle_style]
     lead = lead if lead in LEAD_RULES else DEFAULT_LEAD
     lead_info = LEAD_RULES[lead]
-    system_prompt = _system_raw(formula_key, tone, subtitle_style, lead)
+    system_prompt = _system_raw(formula_key, tone, subtitle_style, lead, ai_mode=ai_mode)
 
     loc = concept.get("location_design", {})
     main_loc = " / ".join([l.get("name","") for l in loc.get("main_locations",[]) if l.get("name")]) or "주 장소"
@@ -2513,21 +2713,21 @@ def build_block_prompt(concept, arc_block, block_no,
     is_paywall = any(e.get("paywall") or e.get("ep") in (_pw - 1, _pw) for e in episodes)
     is_pilot_block = block_no == 1
 
-    # 분량 등급 판별
+    # 분량 등급 판별 (파일럿 블록과 과금 블록이 겹칠 수 있다. 무료 5화형)
     volume_note = ""
     if is_pilot_block:
-        volume_note = f"""
+        volume_note += f"""
 ★★★ 파일럿 블록 — EP1은 시리즈의 첫 인상이다 ★★★
 EP1 분량: 700~1000자. 사건 3~4개. 2~3씬.
 EP1 첫 프레임에서 감정 극단 상태. 일상 도입 절대 금지.
-
+{premise_block(premise)}
 {EP1_RULES}
 
 나머지 화(EP2~5): 일반 분량 500~800자.
-EP 1~3 안에 첫 작은 응징, EP 4~5에 한 번 더. 악역 진영의 한 사람이 눈에 보이는 손해를 본다. 큰 떡밥은 터뜨리지 않는다.
+EP 1~3 안에 첫 작은 응징. 악역 진영의 한 사람이 눈에 보이는 손해를 본다.
 """
-    elif is_paywall:
-        volume_note = """
+    if is_paywall:
+        volume_note += """
 ★★★ 과금 전환점 — EP⟦PW-1⟧~⟦PW⟧은 돈을 내게 만드는 순간이다 ★★★
 EP⟦PW-1⟧~⟦PW⟧ 분량: 800~1200자. 사건 2~3개 + 대반전 1개. 2~3씬.
 EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는 순간에 멈춘다.
@@ -2536,7 +2736,7 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 과금 관문 앞의 화: 일반 분량 500~800자. 떡밥을 조이기만 하고 터뜨리지 않는다.
 과금 관문 뒤의 화(EP⟦PW+1⟧~⟦PW+4⟧): 과금 후 보상감. 분량 700~1000자.
 """
-    else:
+    if not volume_note:
         volume_note = "\n[일반 분량] 1화 = 500~800자. 사건 1~2개. 1~2씬.\n"
 
     pn_block = f"\n[프로듀서 노트 — 반드시 반영]\n{producer_note}\n" if producer_note.strip() else ""
@@ -2544,14 +2744,19 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
     lead_check = ""
     if lead == "male":
         lead_check = " 주인공이 맞거나 무릎 꿇거나 비는 장면이 하나라도 있으면 그 화는 실패다."
+    ai_check = ""
+    if ai_mode:
+        ai_check = ("\n□ [AI 제작 모드] 얼굴이 나오는 인물이 4명 이하인가? 새 세트를 늘리지 않았는가?"
+                    "\n□ [AI 제작 모드] 몸이 닿는 순간을 (암전)과 (소리만)으로 처리했는가? 두 사람이 침대에 있는 그림이 없는가?")
     ep1_check = ""
     if is_pilot_block:
         ep1_check = (
-            "\n□ [EP1] 첫 컷이 주인공이 거부당하는 그림인가?"
-            "\n□ [EP1] 대사 세 번째 줄 안에 악역의 타격 대사가 있는가?"
-            "\n□ [EP1] EP1만 보고 이 작품의 전제를 한 문장으로 말할 수 있는가?"
-            "\n□ [EP1] 판을 뒤집을 강자의 얼굴이 나오는가?"
-            "\n□ [EP1] 마지막 장면이 주인공의 행동인가? 당하고 끝나지 않는가?"
+            "\n□ [EP1] 첫 지문 1~2줄이 충돌이나 대비인가?"
+            "\n□ [EP1] 대사 네 번째 줄 안에 갈등·관계·목표가 나오는가?"
+            "\n□ [EP1] 첫 씬이 끝나기 전에 첫 반전이 있는가?"
+            "\n□ [EP1] 남녀 주인공(또는 주인공과 주적)이 모두 나오는가?"
+            "\n□ [EP1] 전제(바닥·뒤집는 장치·약속된 쾌감)가 EP1 안에 다 나오는가?"
+            "\n□ [EP1] 엔딩이 주인공의 행동이나 적의 한마디인가?"
             "\n□ EP 1~3 안에 첫 작은 응징이 있는가?"
         )
 
@@ -2559,7 +2764,8 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 {volume_note}{pn_block}
 [작품] {concept.get('title','')} | 시장: {market} | 수위: {rating_info['name']} | 톤: {tone_info['name']} | 주인공 향: {lead_info['name']} | 첫 자막: {sub_info['name']}
 [국면] {phase} / {theme} / {sweet_bitter} / 주력도파민: {dopamine_target}
-[규칙이 부딪힐 때의 순서] 수위 등급 금지 항목 > EP1 전용 기준 > 주인공 향 > 작품 톤 > 혼자 씬 한도·대사 8개 > 감정 모드 지침
+{target_block(target)}
+[규칙이 부딪힐 때의 순서] 수위 등급 금지 항목 > AI 제작 모드 > EP1 전용 기준 > 주인공 향 > 작품 톤 > 혼자 씬 한도·대사 8개 > 감정 모드 지침
 [루프] {dopamine.get('addiction_loop','')} | [시소] {dopamine.get('seesaw_pattern','')}
 
 [수위 규정]
@@ -2616,6 +2822,9 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 11. 주인공이 혼자 있는 씬은 이 블록에 최대 1개. 나머지 씬은 전부 누군가와 부딪힌다.
 12. 대본에는 캐릭터 바이블의 실제 이름만 쓴다. [주인공] [악역] 같은 대괄호 자리표시를 쓰면 실패다.
     규칙 예시에 나온 장소·소품·대사를 그대로 가져다 쓰지 않는다.
+13. 매 화 반전 1번 이상. 관객이 방금 예상한 것과 다른 일이 화 중간에 벌어진다. 클리프행어와 따로 센다.
+14. 화면 인서트(휴대폰·노트북·모니터)는 한 화 분량의 1/3을 넘지 않는다. 화면에 뜬 내용은 사람이 소리 내어 말한다.
+15. 이 원고는 집필 직후 자동 점검을 받는다. 대사 0줄인 화, 혼자 씬 10% 초과, 화면 인서트 1/3 초과가 나오면 통째로 다시 쓴다.
 
 [출력 포맷 — 대사 중심 숏폼 리듬]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2670,8 +2879,10 @@ S#은 EP마다 S#1부터 리셋. 1화 1~3씬. 장소/시간 전환 = 새 씬.
 □ 상황 변화+캐릭터 선택+클리프행어가 있는가?
 □ 악역의 강도가 작품 톤({tone_info['name']})과 맞는가?
 □ 주인공 향({lead_info['name']}) 규칙을 지켰는가?{lead_check}
+□ 매 화에 반전이 1번 이상 있는가?
+□ 화면 인서트가 한 화의 1/3 이하인가?{ai_check}
 □ [자막] 줄이 선택한 형식({sub_info['name']})인가? 줄 자체는 모든 화에 있는가?
-□ 대괄호 자리표시([주인공] 등)나 규칙 예시의 장소·대사가 대본에 들어가지 않았는가?{ep1_check}"""
+□ 대괄호 자리표시([주인공] 등)나 규칙 예시의 장소·대사가 대본에 들어가지 않았는가?{ep1_check}{rewrite_note}"""
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2683,7 +2894,7 @@ def build_convert_prompt(source_text, formula_key,
                           total_eps=30, intensity_key="감성_숏폼",
                           preserve_elements="", market="한국", rating="teen",
                           producer_note="", tone=None, subtitle_style=None,
-                          lead=None, _pw=DEFAULT_PAYWALL):
+                          lead=None, _pw=DEFAULT_PAYWALL, target="", ai_mode=False, premise=""):
     formula = MAKJANG_FORMULAS.get(formula_key, MAKJANG_FORMULAS["감성숏폼"])
     lead = lead if lead in LEAD_RULES else DEFAULT_LEAD
     lead_info = LEAD_RULES[lead]
@@ -2691,7 +2902,7 @@ def build_convert_prompt(source_text, formula_key,
     subtitle_style = subtitle_style if subtitle_style in SUBTITLE_STYLES else DEFAULT_SUBTITLE
     tone_info = TONE_RULES[tone]
     sub_info = SUBTITLE_STYLES[subtitle_style]
-    system_prompt = _system_raw(formula_key, tone, subtitle_style, lead)
+    system_prompt = _system_raw(formula_key, tone, subtitle_style, lead, ai_mode=ai_mode)
     intensity = CONVERT_INTENSITY.get(intensity_key, CONVERT_INTENSITY["감성_숏폼"])
     rating_info = CONTENT_RATING_RULES.get(rating, CONTENT_RATING_RULES["teen"])
 
@@ -2714,6 +2925,8 @@ def build_convert_prompt(source_text, formula_key,
 [강도 규칙] {intensity['rules']}
 [작품 톤] {tone_info['desc']} {tone_info['concept_hint']}
 [주인공 향: {lead_info['name']}] {lead_info['concept_hint']}
+{target_block(target)}
+{(AI_MODE_CONCEPT if ai_mode else '')}
 [첫 과금 관문] EP ⟦PW⟧. episode_map에서 EP ⟦PW⟧가 들어 있는 구간의 summary에 '과금 전환'을 적고 가장 강한 도파민을 둔다.
 [수위] 허용: {' / '.join(rating_info['allowed'][:3])} | 금지: {' / '.join(rating_info['forbidden'][:2])}
 
@@ -2749,7 +2962,7 @@ def build_convert_prompt(source_text, formula_key,
   "shortform_concept": {{
     "title": "숏폼용 제목 (10자 이내)",
     "logline": "주인공+목표+장애물+판돈 구조 2문장",
-    "hook_ep1": "EP1 첫 프레임 — 주인공이 거부당하는 그림",
+    "hook_ep1": "EP1 첫 프레임 — 충돌이나 대비의 그림",
     "first_subtitle": "{sub_info['schema_hint']}",
     "emotional_arc": "Bittersweet 감정 곡선",
     "market_hook": "글로벌 시장 핵심 훅"
@@ -2780,7 +2993,7 @@ def build_convert_prompt(source_text, formula_key,
 @_paywall_filled
 def build_pilot_prompt(convert_result, source_text="", market="한국", rating="teen",
                        producer_note="", formula_key="", tone=None, subtitle_style=None,
-                       lead=None, _pw=DEFAULT_PAYWALL):
+                       lead=None, _pw=DEFAULT_PAYWALL, target="", ai_mode=False, premise=""):
     """변환 분석(1단계) 결과를 받아 EP1+EP2 파일럿 대본을 Opus로 집필한다."""
     rating_info = CONTENT_RATING_RULES.get(rating, CONTENT_RATING_RULES["teen"])
     tone = tone if tone in TONE_RULES else DEFAULT_TONE
@@ -2789,7 +3002,7 @@ def build_pilot_prompt(convert_result, source_text="", market="한국", rating="
     sub_info = SUBTITLE_STYLES[subtitle_style]
     lead = lead if lead in LEAD_RULES else DEFAULT_LEAD
     lead_info = LEAD_RULES[lead]
-    system_prompt = _system_raw(formula_key, tone, subtitle_style, lead)
+    system_prompt = _system_raw(formula_key, tone, subtitle_style, lead, ai_mode=ai_mode)
     pn_block = f"\n[프로듀서 노트 — 반드시 반영]\n{producer_note}\n" if producer_note.strip() else ""
 
     # 변환 결과에서 핵심 정보 추출
@@ -2819,8 +3032,9 @@ def build_pilot_prompt(convert_result, source_text="", market="한국", rating="
 제목: {sc.get('title', '')}
 로그라인: {sc.get('logline', '')}
 시장: {market} | 수위: {rating_info['name']} | 톤: {tone_info['name']} | 주인공 향: {lead_info['name']} | 첫 자막: {sub_info['name']}
-[규칙이 부딪힐 때의 순서] 수위 등급 금지 항목 > EP1 전용 기준 > 주인공 향 > 작품 톤 > 혼자 씬 한도·대사 8개 > 감정 모드 지침
-{pn_block}
+[규칙이 부딪힐 때의 순서] 수위 등급 금지 항목 > AI 제작 모드 > EP1 전용 기준 > 주인공 향 > 작품 톤 > 혼자 씬 한도·대사 8개 > 감정 모드 지침
+{target_block(target)}
+{premise_block(premise)}{pn_block}
 [원본 핵심 갈등]
 {oa.get('core_conflict', '')}
 
@@ -2882,10 +3096,11 @@ def build_pilot_prompt(convert_result, source_text="", market="한국", rating="
 {EP1_RULES}
 
 [파일럿 집필 강화 규칙]
-1. EP1 첫 프레임 = 스크롤 멈춤. 주인공이 거부당하는 그림부터 시작. 설명 도입 절대 금지.
+1. EP1 첫 프레임 = 스크롤 멈춤. 충돌이나 대비의 그림부터 시작. 설명 도입 절대 금지.
 2. EP1 첫 대사 = 맥락 없이도 궁금한 한 줄. '이게 뭔 소린지' 궁금해야 한다.
 3. 악역의 첫 나쁜 짓은 추상적이면 안 된다. 관객이 '저런 사람 내 주변에도 있어!' 할 정도로 구체적. 강도는 작품 톤({tone_info['name']})을 따른다.
-4. EP1 클리프행어 = 주인공의 첫 행동 직후에 끊는다. 결과는 절대 보여 주지 않는다.
+4. EP1 클리프행어 = 주인공의 행동이나 적의 한마디로 끊는다. 결과는 절대 보여 주지 않는다.
+   모든 화에 반전이 1번 이상 있다.
 5. EP2 시작 = EP1 클리프행어를 30% 해소. 완전 해소 절대 금지.
 6. EP2 = EP1과 다른 감정 모드. 같은 톤 반복 금지.
 7. EP2 클리프행어 = EP1보다 더 강하게. EP3 결제를 만드는 순간.
@@ -2898,13 +3113,14 @@ def build_pilot_prompt(convert_result, source_text="", market="한국", rating="
 
 [나쁜 파일럿 vs 좋은 파일럿]
 나쁜: "조용한 아침. [주인공]이 하루를 준비한다." → 아무 감정 없다. 스크롤 넘긴다.
-좋음: "[주인공]의 캐리어가 현관 밖으로 굴러 나온다. 문이 눈앞에서 닫힌다." → 첫 컷에 거부당한다.
+좋음: "[주인공]의 캐리어가 현관 밖으로 굴러 나온다. 문이 눈앞에서 닫힌다." → 첫 컷이 충돌이다.
 
 나쁜: '저는 그동안 정말 열심히 했습니다' → 설명 대사. 도파민 제로.
 좋음: '열쇠는 돌려 드릴게요. 등기부 확인하고요.' → 대사가 다음 사건을 만든다.
 
 나쁜 클리프행어: "[주인공]이 집으로 돌아간다." → 다음 화 안 본다.
-좋은 클리프행어: "[주인공]이 찢은 수표를 [악역]의 손에 쥐여 준다. 문이 열린다." → 행동 직후에 끊는다.
+좋은 클리프행어: "[주인공]이 찢은 수표를 [악역]의 손에 쥐여 준다. 문이 열린다." → 주인공의 행동 직후에 끊는다.
+좋은 클리프행어: [악역] '둘 중 하나는 이 집에서 못 나간다.' → 적의 한마디로 끊는다.
 
 [출력 포맷 — 정확히 따를 것]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2933,11 +3149,12 @@ EP 2 | {m2.get('emoji','')} {ep2_mode} | [도파민]
 (동일 포맷. S#은 EP마다 S#1부터 리셋.)
 
 [출력 전 자기검토 — 한 항목이라도 실패하면 그 줄을 고쳐서 출력]
-□ EP1 첫 프레임: 주인공이 거부당하는 그림인가? 일상 묘사로 시작하지 않았는가?
-□ EP1: 대사 세 번째 줄 안에 악역의 타격 대사가 있는가?
-□ EP1: 이 작품의 전제를 한 문장으로 말할 수 있는가?
-□ EP1: 판을 뒤집을 강자의 얼굴이 나오는가?
-□ EP1 엔딩: 주인공의 행동으로 끝나는가? 당하고 끝나지 않는가?
+□ EP1 첫 프레임: 충돌이나 대비인가? 일상 묘사로 시작하지 않았는가?
+□ EP1: 대사 네 번째 줄 안에 갈등·관계·목표가 나오는가?
+□ EP1: 첫 씬이 끝나기 전에 첫 반전이 있는가?
+□ EP1: 남녀 주인공(또는 주인공과 주적)이 모두 나오는가?
+□ EP1: 전제(바닥·뒤집는 장치·약속된 쾌감)가 EP1 안에 다 나오는가?
+□ EP1 엔딩: 주인공의 행동이나 적의 한마디로 끝나는가?
 □ [자막] 줄이 선택한 형식({sub_info['name']})인가?
 □ EP1 첫 대사: 맥락 없이도 궁금한가? 설명 대사가 아닌가?
 □ 악역: 구체적 나쁜 짓이 보이는가? 추상적 악당이 아닌가?
@@ -2951,3 +3168,221 @@ EP 2 | {m2.get('emoji','')} {ep2_mode} | [도파민]
 실패 항목이 하나라도 있으면 해당 줄을 고쳐서 출력한다.
 
 JSON 아님. 텍스트. 두 화 모두 위 포맷 엄수."""
+
+
+# ═══════════════════════════════════════════════════════════════
+#  집필 후 자동 점검 (v2.4) — 걸리면 다시 쓴다
+#  대본 글만 읽는다. 모델을 부르지 않는다.
+# ═══════════════════════════════════════════════════════════════
+
+SOLO_LIMIT = 0.10      # 주인공 혼자인 씬이 전체의 10%를 넘으면 불합격
+INSERT_LIMIT = 1 / 3   # 화면 인서트가 한 화의 1/3을 넘으면 불합격
+AI_MAX_FACES = 4
+
+_EP_RE = re.compile(r"^\s*EP\s*(\d+)\s*\|")
+_SCENE_RE = re.compile(r"^\s*S#\s*\d+")
+_SUB_RE = re.compile(r"^\s*\[자막\]")
+_RULE_RE = re.compile(r"^[\s━─=\-_*]+$")
+_SPEAKER_RE = re.compile(r"^\s*([가-힣A-Za-z0-9]{1,8}(?: ?[가-힣A-Za-z0-9]{1,6})?)(?:\s{2,}|\t+|\s*\()")
+_REMOTE_RE = re.compile(r"\((?:[^)]*)(?:전화|통화|음성|메시지|문자|카톡|목소리|수화기|화면 속|영상|V\.O|E\))")
+_INSERT_RE = re.compile(r"핸드폰|휴대폰|스마트폰|폰 화면|폰을|노트북|모니터|태블릿|화면|카톡|문자|메시지|메일|알림|발신|검색창|스크롤|클릭|타이핑|인서트|DM")
+_CHAT_RE = re.compile(r"\((?:[^)]*)(?:카톡|문자|메시지|메일|DM|채팅)")
+_BED_RE = re.compile(r"침대|이불 속|한 이불")
+_PARTICLES = "이가은는을를의에와과도만로께서"
+
+
+def _concept_names(concept):
+    """컨셉에서 인물 이름을 뽑는다. (주인공 이름 목록, 전체 이름 목록)"""
+    def split(name):
+        name = (name or "").strip()
+        if not name:
+            return []
+        parts = {name}
+        m = re.match(r"^([가-힣A-Za-z]+)", name)
+        if m:
+            parts.add(m.group(1))
+            full = m.group(1)
+            if re.fullmatch(r"[가-힣]{3,4}", full):
+                parts.add(full[1:])   # 성을 뗀 이름
+        return [p for p in parts if p]
+    concept = concept or {}
+    lead = split((concept.get("protagonist") or {}).get("name"))
+    names = list(lead)
+    for key in ("villain", "helper", "rival"):
+        names += split((concept.get(key) or {}).get("name"))
+    for c in concept.get("supporting_cast") or []:
+        names += split((c or {}).get("name"))
+    return lead, sorted(set(names), key=len, reverse=True)
+
+
+def parse_script(text, concept=None):
+    """대본을 화 → 씬 → 줄로 나눈다. 줄마다 대사인지 지문인지 가린다."""
+    lead_names, known = _concept_names(concept)
+    raw_lines = [ln.rstrip() for ln in (text or "").splitlines()]
+
+    # 1) 화자 후보: 컨셉의 이름 + '이름␣␣대사' 꼴로 두 번 이상 나온 말
+    counts = {}
+    for ln in raw_lines:
+        if _EP_RE.match(ln) or _SCENE_RE.match(ln) or _SUB_RE.match(ln):
+            continue
+        m = _SPEAKER_RE.match(ln)
+        if m:
+            tok = m.group(1).strip()
+            counts[tok] = counts.get(tok, 0) + 1
+    speakers = set(known)
+    for tok, c in counts.items():
+        if tok in speakers:
+            continue
+        # 조사로 끝나는 말은 지문의 주어일 가능성이 높다. 컨셉에 없는 이름이면 뺀다.
+        if tok[-1] in _PARTICLES and len(tok) > 2:
+            continue
+        if c >= 2 or re.search(r"^\s*" + re.escape(tok) + r"(?:\s{2,}|\t)", "\n".join(raw_lines), re.M):
+            speakers.add(tok)
+
+    def speaker_of(ln):
+        s = ln.strip()
+        for name in sorted(speakers, key=len, reverse=True):
+            if s.startswith(name):
+                rest = s[len(name):]
+                if rest[:1] not in (" ", "\t", "(") or not rest.strip():
+                    continue
+                # '이름␣대사'처럼 한 칸만 띈 줄: '~다.'로 끝나는 현재형 서술이면 지문으로 본다.
+                one_space = rest[:1] == " " and rest[1:2] not in (" ", "(")
+                if one_space and re.search(r"[^니]다\.?$", rest.strip()):
+                    return None
+                return name
+        return None
+
+    episodes, ep, scene = [], None, None
+    for ln in raw_lines:
+        if not ln.strip() or _RULE_RE.match(ln):
+            continue
+        m = _EP_RE.match(ln)
+        if m:
+            ep = {"ep": int(m.group(1)), "header": ln.strip(), "subtitle": None, "scenes": []}
+            episodes.append(ep)
+            scene = None
+            continue
+        if ep is None:
+            continue
+        if _SUB_RE.match(ln):
+            ep["subtitle"] = ln.strip()
+            continue
+        if _SCENE_RE.match(ln):
+            scene = {"header": ln.strip(), "lines": []}
+            ep["scenes"].append(scene)
+            continue
+        if scene is None:
+            scene = {"header": "", "lines": []}
+            ep["scenes"].append(scene)
+        who = speaker_of(ln)
+        scene["lines"].append({
+            "text": ln.strip(), "speaker": who,
+            "remote": bool(who and _REMOTE_RE.search(ln)),
+            # 화면 인서트: 화면을 찍는 지문, 또는 (카톡)(문자)처럼 화면 글자로 주고받는 대사
+            "insert": bool(_CHAT_RE.search(ln)) if who else bool(_INSERT_RE.search(ln)),
+        })
+    return {"episodes": episodes, "speakers": sorted(speakers), "lead_names": lead_names, "known": known}
+
+
+def _present(scene, parsed):
+    """씬 화면 안에 있는 인물 이름들. 전화·음성으로만 나오는 사람은 뺀다."""
+    here = set()
+    names = sorted(set(parsed["speakers"]) | set(parsed["known"]), key=len, reverse=True)
+    for ln in scene["lines"]:
+        if ln["speaker"]:
+            if not ln["remote"]:
+                here.add(ln["speaker"])
+            continue
+        if ln["insert"]:
+            continue  # 화면 속 이름(발신자 등)은 그 자리에 있는 사람이 아니다
+        for name in names:
+            if name in ln["text"]:
+                here.add(name)
+    return here
+
+
+def _same_person(a, b):
+    return a == b or a.endswith(b) or b.endswith(a)
+
+
+def check_script(text, concept=None, ai_mode=False):
+    """집필된 블록을 점검한다. 돌려주는 값:
+    {"ok": bool, "issues": [사람이 읽는 문장], "stats": {...}}"""
+    parsed = parse_script(text, concept)
+    eps = parsed["episodes"]
+    lead = parsed["lead_names"]
+    issues, stats = [], {"episodes": len(eps), "scenes": 0, "solo_scenes": 0, "per_ep": []}
+    if not eps:
+        return {"ok": False, "issues": ["EP 줄을 찾지 못했습니다. 출력 형식이 깨졌습니다."], "stats": stats}
+
+    faces = set()
+    for ep in eps:
+        lines = [ln for sc in ep["scenes"] for ln in sc["lines"]]
+        dialog = [ln for ln in lines if ln["speaker"]]
+        inserts = [ln for ln in lines if ln["insert"]]
+        ratio = (len(inserts) / len(lines)) if lines else 0
+        stats["per_ep"].append({"ep": ep["ep"], "lines": len(lines), "dialogue": len(dialog),
+                                "inserts": len(inserts), "scenes": len(ep["scenes"])})
+        if not dialog:
+            issues.append(f"EP {ep['ep']}: 대사가 0줄입니다. 대사 8~12개로 다시 씁니다.")
+        elif len(dialog) < 5:
+            issues.append(f"EP {ep['ep']}: 대사가 {len(dialog)}줄뿐입니다. 대사 8~12개로 늘립니다.")
+        if lines and ratio > INSERT_LIMIT:
+            issues.append(f"EP {ep['ep']}: 화면 인서트(휴대폰·노트북)가 {len(lines)}줄 중 {len(inserts)}줄로 1/3을 넘습니다. "
+                          f"화면에 뜬 내용을 사람의 대사로 옮깁니다.")
+        if ep["subtitle"] is None:
+            issues.append(f"EP {ep['ep']}: [자막] 줄이 없습니다. 줄 자체는 반드시 둡니다.")
+        if not ep["scenes"] or not any(sc["header"] for sc in ep["scenes"]):
+            issues.append(f"EP {ep['ep']}: S# 줄이 없습니다.")
+        for sc in ep["scenes"]:
+            stats["scenes"] += 1
+            here = _present(sc, parsed)
+            faces |= here
+            others = [n for n in here if not any(_same_person(n, l) for l in lead)]
+            if not others:
+                stats["solo_scenes"] += 1
+                sc["solo"] = True
+            if ai_mode and len(here) >= 2 and any(_BED_RE.search(ln["text"]) for ln in sc["lines"]):
+                issues.append(f"EP {ep['ep']} {sc['header'][:20]}: 두 사람이 침대에 있는 그림입니다. AI 제작 모드에서는 쓰지 않습니다.")
+
+    if stats["scenes"]:
+        solo_ratio = stats["solo_scenes"] / stats["scenes"]
+        stats["solo_ratio"] = round(solo_ratio, 3)
+        # 씬이 10개 미만인 블록에서는 1개도 10%를 넘는다. 블록당 1개까지는 허용한다.
+        if solo_ratio > SOLO_LIMIT and stats["solo_scenes"] > 1:
+            where = [f"EP {ep['ep']}" for ep in eps for sc in ep["scenes"] if sc.get("solo")]
+            issues.append(f"주인공 혼자인 씬이 {stats['scenes']}씬 중 {stats['solo_scenes']}씬으로 10%를 넘습니다 ({', '.join(where)}). "
+                          f"그 씬에 사람을 들여보내 부딪히게 고칩니다.")
+    if ai_mode:
+        # 같은 사람의 다른 표기(성+이름 / 이름)를 하나로 센다.
+        uniq = []
+        for n in sorted(faces, key=len, reverse=True):
+            if not any(_same_person(n, u) for u in uniq):
+                uniq.append(n)
+        stats["faces"] = uniq
+        if len(uniq) > AI_MAX_FACES:
+            issues.append(f"얼굴이 나오는 인물이 {len(uniq)}명입니다 ({', '.join(uniq)}). AI 제작 모드는 4명 이하입니다. "
+                          f"나머지는 목소리나 뒷모습으로 바꿉니다.")
+    return {"ok": not issues, "issues": issues, "stats": stats}
+
+
+def build_rewrite_note(issues, previous_script):
+    """자동 점검에 걸린 원고를 다시 쓰게 할 때 블록 프롬프트 뒤에 붙이는 글."""
+    lines = "\n".join(f"- {i}" for i in issues)
+    return f"""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[다시 쓰기 — 직전 원고가 자동 점검에서 불합격했다]
+불합격 사유:
+{lines}
+
+지시:
+- 위 사유를 모두 고쳐서 이 블록 전체를 처음부터 끝까지 다시 출력한다.
+- 문제가 없던 화의 사건과 클리프행어는 그대로 살린다. 문제가 된 화만 장면을 새로 짠다.
+- 출력 형식(EP 줄, [자막] 줄, S# 줄, 인물 대사 줄)은 그대로 지킨다.
+- 설명이나 사과문을 붙이지 않는다. 대본만 출력한다.
+
+[직전 원고 — 참고용]
+{previous_script}
+"""
