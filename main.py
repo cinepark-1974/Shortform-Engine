@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v2.4 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v2.5 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -14,10 +14,11 @@ import io
 from datetime import datetime
 import importlib
 import prompt as P
+import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.4.1"
+EXPECTED_ENGINE_VERSION = "2.5.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -28,6 +29,7 @@ MODEL_WRITE = P.MODEL_WRITE   # claude-opus-4-6  — 블록 집필
 MODEL_PLAN  = P.MODEL_PLAN    # claude-sonnet-4-6 — 컨셉·아크·변환
 
 MAX_TOKENS_CONCEPT = 6000
+MAX_TOKENS_IMPORT  = 4000   # 문서 → 입력칸 채우기
 MAX_TOKENS_ARC     = 12000  # 청크당 5블록(25화) — 4회 호출
 MAX_TOKENS_BLOCK   = 12000
 MAX_TOKENS_CONVERT = 10000
@@ -167,7 +169,9 @@ def init():
     d = {"step":0,"concept":None,"arc":None,"blocks":{},
          "convert_result":None,"block_modes":{},"pilot_text":None,
          "producer_note":"","selected_block":None,
-         "premise":"","premise_check":None,"block_checks":{}}
+         "premise":"","premise_check":None,"block_checks":{},
+         "import_pending":None,"import_report":None,
+         "total_eps_key":100}
     for k,v in d.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -396,7 +400,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.4 · {datetime.now().strftime('%Y-%m-%d')}")
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.5 · {datetime.now().strftime('%Y-%m-%d')}")
     r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
@@ -576,7 +580,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.4 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.5 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
@@ -630,6 +634,126 @@ with col_ai:
     st.caption("얼굴 4명·세트 5곳 이하, 몸싸움은 소리와 암전, 침대 2인 금지, 식탁·클로즈업·손·소품 위주.")
     auto_check_key = st.toggle("집필 후 자동 점검", value=True, key="auto_check_key")
     st.caption("대사 0줄·혼자 씬 10% 초과·화면 인서트 1/3 초과면 다시 씁니다.")
+
+
+# ─── 문서에서 가져오기 (v2.5) ─────────────────────
+# 입력칸 이름 → 화면 위젯 키
+IMPORT_WIDGET_KEYS = {
+    "premise": "premise_input",
+    "protagonist": "protagonist_input",
+    "villain": "villain_input",
+    "secrets": "secrets_input",
+    "season_question": "sq_input",
+    "supporting_hint": "hint_input",
+    "custom_idea": "custom_input",
+}
+TOTAL_EPS_OPTIONS = [20, 30, 50, 80, 90, 100]
+
+
+def current_concept_fields():
+    """지금 입력칸에 적혀 있는 글을 모은다."""
+    return {f: (st.session_state.get(k) or "").strip()
+            for f, k in IMPORT_WIDGET_KEYS.items()}
+
+
+def _as_text(v):
+    """AI가 줄 목록으로 돌려줘도 입력칸에 넣을 수 있게 글로 바꾼다."""
+    if isinstance(v, list):
+        return "\n".join(str(x).strip() for x in v if str(x).strip())
+    if isinstance(v, dict):
+        return "\n".join(f"{k}: {x}" for k, x in v.items())
+    return str(v or "").strip()
+
+
+def run_field_fill(doc_text, source_label, fill_missing=True, overwrite=False):
+    """문서(없으면 이미 적힌 칸)를 읽혀 입력칸을 채운다. 성공하면 True."""
+    cur = current_concept_fields()
+    keep = {} if overwrite else {f: v for f, v in cur.items() if v}
+    raw = call_claude(
+        P.build_import_prompt(doc_text, keep, fill_missing,
+                              total_eps=st.session_state.get("total_eps_key", 100),
+                              target=st.session_state.get("target_key", "")),
+        MAX_TOKENS_IMPORT)
+    res = safe_json(raw)
+    if not res or not isinstance(res.get("fields"), dict):
+        st.error("문서를 입력칸으로 나누지 못했습니다. 다시 시도해 주세요.")
+        if raw:
+            with st.expander("Raw"): st.text(raw[:1000])
+        return False
+
+    pending, filled_doc, filled_ai, kept, empty = {}, [], [], [], []
+    generated = set(res.get("generated") or [])
+    for f, wkey in IMPORT_WIDGET_KEYS.items():
+        if f in keep:
+            kept.append(f)
+            continue
+        val = _as_text(res["fields"].get(f))
+        if not val:
+            empty.append(f)
+            continue
+        pending[wkey] = val
+        (filled_ai if f in generated else filled_doc).append(f)
+
+    fk = res.get("formula_key")
+    if fk in P.MAKJANG_FORMULAS:
+        pending["fs"] = fk
+    try:
+        eps = int(res.get("total_eps") or 0)
+    except (TypeError, ValueError):
+        eps = 0
+    if eps in TOTAL_EPS_OPTIONS:
+        pending["total_eps_key"] = eps
+
+    st.session_state.import_pending = pending
+    st.session_state.import_report = {
+        "source": source_label, "title": _as_text(res.get("title")),
+        "from_doc": filled_doc, "generated": filled_ai, "kept": kept, "empty": empty,
+        "formula_key": fk if fk in P.MAKJANG_FORMULAS else "",
+        "formula_reason": _as_text(res.get("formula_reason")),
+        "total_eps": eps if eps in TOTAL_EPS_OPTIONS else 0,
+        "doc_eps": eps,
+        "warning": _as_text(res.get("warning")),
+    }
+    st.session_state.premise_check = None   # 전제가 바뀌었으니 점검도 다시
+    return True
+
+
+def apply_import_pending():
+    """입력칸 위젯이 그려지기 전에, 가져온 값을 위젯에 넣는다."""
+    pending = st.session_state.import_pending
+    if pending:
+        for k, v in pending.items():
+            st.session_state[k] = v
+        st.session_state.import_pending = None
+
+
+def show_import_report():
+    rp = st.session_state.import_report
+    if not rp:
+        return
+    name = lambda keys: ", ".join(P.IMPORT_FIELDS[k] for k in keys)
+    lines = []
+    if rp["from_doc"]:
+        lines.append(f'<div>📄 <b>문서에서 가져온 칸</b>: {name(rp["from_doc"])}</div>')
+    if rp["generated"]:
+        lines.append(f'<div style="color:var(--orange)">✨ <b>AI가 지어서 채운 칸</b> (읽고 고쳐 주세요): {name(rp["generated"])}</div>')
+    if rp["kept"]:
+        lines.append(f'<div>✍️ <b>이미 적혀 있어 그대로 둔 칸</b>: {name(rp["kept"])}</div>')
+    if rp["empty"]:
+        lines.append(f'<div style="color:var(--dim)">⬜ <b>비어 있는 칸</b>: {name(rp["empty"])}</div>')
+    if rp["formula_key"]:
+        lines.append(f'<div>🧭 <b>막장 공식</b>: {P.MAKJANG_FORMULAS[rp["formula_key"]]["name"]} — {rp["formula_reason"]}</div>')
+    if rp["total_eps"]:
+        lines.append(f'<div>🎞 <b>총 에피소드</b>: 문서에 적힌 {rp["total_eps"]}화로 맞췄습니다.</div>')
+    elif rp["doc_eps"]:
+        lines.append(f'<div style="color:var(--dim)">🎞 문서에는 {rp["doc_eps"]}화로 적혀 있습니다. 이 엔진의 화수 선택지에 없어 그대로 두었습니다.</div>')
+    if rp["warning"]:
+        lines.append(f'<div style="color:#D32F2F">⚠ {rp["warning"]}</div>')
+    title = f' — {rp["title"]}' if rp["title"] else ""
+    st.markdown(
+        f'<div class="callout"><div class="cl">가져오기 결과 · {rp["source"]}{title}</div>'
+        f'<div style="font-size:.82rem;line-height:1.9">{"".join(lines)}</div></div>',
+        unsafe_allow_html=True)
 
 
 def run_premise_check(premise):
@@ -749,6 +873,45 @@ with tab_create:
     # ── STEP 1: 컨셉 ──────────────────────────────
     st.markdown('<div class="section-header">📝 컨셉 설정 <span class="en">STEP 1 · CONCEPT</span></div>', unsafe_allow_html=True)
 
+    apply_import_pending()
+
+    with st.expander("📎 문서에서 가져오기 — 기획서·시놉시스를 올리면 아래 칸을 자동으로 채웁니다",
+                     expanded=not any(current_concept_fields().values())):
+        col_up, col_paste = st.columns(2)
+        with col_up:
+            up = st.file_uploader(
+                "파일 올리기", type=doc_import.SUPPORTED, key="import_file",
+                help="PDF · 워드(DOCX) · 한글(HWP/HWPX) · TXT · MD · JSON")
+        with col_paste:
+            pasted = st.text_area(
+                "또는 글 붙여넣기", height=110, key="import_paste",
+                placeholder="다른 곳에서 쓴 기획서, 시놉시스, 줄거리, 인물 소개를 그대로 붙여넣으세요.")
+        col_o1, col_o2 = st.columns(2)
+        with col_o1:
+            imp_fill = st.checkbox("문서에 없는 칸은 AI가 지어서 채우기", value=True, key="import_fill")
+        with col_o2:
+            imp_over = st.checkbox("이미 적은 칸도 문서 내용으로 덮어쓰기", value=False, key="import_over")
+        if st.button("📥 문서 읽고 칸 채우기", use_container_width=True, key="import_btn"):
+            doc_text, label = "", ""
+            if up is not None:
+                try:
+                    got = doc_import.extract_text(up.name, up.getvalue())
+                    doc_text, label = got["text"], up.name
+                    if got["trimmed"]:
+                        st.info(f"문서가 깁니다({got['chars']:,}자). 앞부분과 끝부분 {doc_import.MAX_CHARS:,}자만 읽습니다.")
+                except doc_import.DocImportError as e:
+                    st.error(str(e))
+            elif pasted.strip():
+                doc_text, _ = doc_import.trim_for_ai(pasted.strip())
+                label = "붙여넣은 글"
+            else:
+                st.error("파일을 올리거나 글을 붙여넣어 주세요.")
+            if doc_text:
+                with st.spinner("문서를 읽고 칸을 나누는 중... (20~40초)"):
+                    if run_field_fill(doc_text, label, fill_missing=imp_fill, overwrite=imp_over):
+                        st.rerun()
+    show_import_report()
+
     premise = st.text_area(
         "한 문장 전제",
         placeholder="바닥, 뒤집는 장치, 약속된 쾌감이 한 문장(길어도 세 문장)에 들어가야 합니다.\n"
@@ -801,7 +964,7 @@ with tab_create:
                 ["family","teen","adult"],
                 format_func=lambda x:{"family":"👨‍👩‍👧 전체가","teen":"🔞 15세+","adult":"🔞 19+"}[x],
                 index=1, key="rtg")
-        total_eps = st.selectbox("총 에피소드", [20,30,50,80,90,100], index=5)
+        total_eps = st.selectbox("총 에피소드", TOTAL_EPS_OPTIONS, key="total_eps_key")
 
         rating_info = P.CONTENT_RATING_RULES[rating]
         st.markdown(
@@ -822,16 +985,16 @@ with tab_create:
     with col_i1:
         protagonist = st.text_area("주인공 설정",
             placeholder="이름/나이/직업\n처한 상황 (최대한 불쌍하게 — 낙차가 클수록 역전의 도파민이 크다)\n숨겨진 능력/정체/비밀 (역전의 씨앗)",
-            height=100)
+            height=100, key="protagonist_input")
         secrets = st.text_area("핵심 비밀 2~3개",
             placeholder="비밀1: EP__에서 드러남 — 내용\n비밀2: EP__에서 드러남 — 내용\n비밀3: EP__에서 드러남 — 내용",
-            height=80)
+            height=80, key="secrets_input")
     with col_i2:
         villain = st.text_area("메인 악역 설정",
             placeholder="이름/나이/직업\n구체적 나쁜 짓 (관객이 '저런 사람 내 주변에도 있어!'라고 할 것)\n숨겨진 비밀 또는 약점",
-            height=100)
+            height=100, key="villain_input")
         season_question = st.text_input("시즌 질문",
-            placeholder="100화 동안 답을 안 주는 단 하나의 질문")
+            placeholder="마지막 화까지 답을 안 주는 단 하나의 질문", key="sq_input")
 
     st.markdown(
         '<div class="callout" style="margin-top:.3rem">'
@@ -841,10 +1004,22 @@ with tab_create:
     )
     supporting_hint = st.text_area("감초 캐릭터 힌트",
         placeholder="예: 시어머니(분노유발) — 냉정하고 계산적\n예: 직장동료 지수(정보투하) — 밝고 수다스러움\n예: 친구 미래(감정증폭) — 직설적, 주인공 편",
-        height=70, label_visibility="collapsed")
+        height=70, label_visibility="collapsed", key="hint_input")
 
     custom_idea = st.text_area("커스텀 아이디어 (선택)",
-        placeholder="공식 변형 또는 특별한 설정", height=50)
+        placeholder="공식 변형 또는 특별한 설정", height=50, key="custom_input")
+
+    if st.button("✨ 빈 칸 자동 채우기 — 적어 둔 칸은 그대로 두고 나머지를 AI가 채웁니다",
+                 use_container_width=True, key="fill_blank_btn"):
+        cur_now = current_concept_fields()
+        if not any(cur_now.values()):
+            st.error("한 칸이라도 먼저 적어 주세요. 한 문장 전제만 있어도 됩니다.")
+        elif all(cur_now[f] for f in cur_now if f != "custom_idea"):
+            st.info("빈 칸이 없습니다.")
+        else:
+            with st.spinner("빈 칸을 채우는 중... (20~40초)"):
+                if run_field_fill("", "적어 둔 칸에서 채움", fill_missing=True, overwrite=False):
+                    st.rerun()
 
     if st.button("🧠 컨셉 + 도파민 + 감초 설계 생성", type="primary", use_container_width=True):
         premise_ok = True
@@ -1042,7 +1217,7 @@ with tab_create:
     # ── STEP 2: 아크 ────────────────────────────────
     if st.session_state.step >= 1 and st.session_state.concept:
         st.markdown("---")
-        st.markdown('<div class="section-header">📊 100화 아크 설계 <span class="en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">📊 시즌 아크 설계 <span class="en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
 
         _n_eps = int(st.session_state.concept.get("total_eps", 100))
         if st.button(f"📊 {_n_eps}화 아크 + 도파민 마일스톤 생성 ({math.ceil(_n_eps / 25)}회 분할)", type="primary", use_container_width=True):
@@ -1116,7 +1291,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.4 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.5 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1376,7 +1551,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.4\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.5\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1611,7 +1786,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v2.4 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v2.5 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -1656,7 +1831,7 @@ with tab_convert:
         # 변환 탭 내 아크 생성 (컨셉이 세팅된 후)
         if st.session_state.concept and st.session_state.step >= 1 and not st.session_state.arc:
             st.markdown("---")
-            st.markdown('<div class="section-header">📊 100화 아크 설계 <span class="en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">📊 시즌 아크 설계 <span class="en">STEP 2 · SEASON ARC</span></div>', unsafe_allow_html=True)
             st.markdown(
                 f'<div class="callout"><div class="cl">컨셉 확인</div>'
                 f'{st.session_state.concept.get("title","")} — {st.session_state.concept.get("logline","")}</div>',
@@ -1686,6 +1861,6 @@ with tab_convert:
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.4 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.5 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )
