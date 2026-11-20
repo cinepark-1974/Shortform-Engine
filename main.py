@@ -18,7 +18,7 @@ import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.5.0"
+EXPECTED_ENGINE_VERSION = "2.5.1"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
