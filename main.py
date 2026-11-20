@@ -12,7 +12,14 @@ import json
 import re
 import io
 from datetime import datetime
+import importlib
 import prompt as P
+
+# 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
+# 버전이 맞지 않으면 prompt.py를 다시 읽는다.
+EXPECTED_ENGINE_VERSION = "2.4.1"
+if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
+    P = importlib.reload(P)
 from docx import Document as DocxDocument
 from docx.shared import Pt, Inches, RGBColor, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
