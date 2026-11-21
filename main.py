@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v2.7 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v2.8 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -18,7 +18,7 @@ import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.7.1"
+EXPECTED_ENGINE_VERSION = "2.8.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -185,6 +185,12 @@ def get_client():
         st.error("ANTHROPIC_API_KEY가 secrets에 없습니다.")
         st.stop()
     return anthropic.Anthropic(api_key=k)
+
+def safe_name(title):
+    """긴 문장형 제목을 파일 이름으로 쓸 수 있게 다듬는다."""
+    t = re.sub(r'[\\/:*?"<>|…\.]+', "", str(title or "shortform")).strip()
+    return (t[:30].strip() or "shortform")
+
 
 def safe_json(text):
     """Claude 응답에서 JSON을 견고하게 추출한다."""
@@ -402,7 +408,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.7 · {datetime.now().strftime('%Y-%m-%d')}")
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.8 · {datetime.now().strftime('%Y-%m-%d')}")
     r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
@@ -621,7 +627,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.7 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.8 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
@@ -1371,7 +1377,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.7 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.8 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1634,7 +1640,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.7\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.8\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1653,12 +1659,12 @@ with tab_create:
             docx_bytes = build_docx(full, title=title,
                 subtitle=st.session_state.concept.get('logline','') if st.session_state.concept else '')
             st.download_button("📄 전체 대본 DOCX", docx_bytes,
-                file_name=f"{title}_전체대본.docx",
+                file_name=f"{safe_name(title)}_전체대본.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 use_container_width=True)
         with col_dl2:
             st.download_button("📄 전체 대본 TXT", full.encode("utf-8"),
-                file_name=f"{title}_전체대본.txt", mime="text/plain", use_container_width=True)
+                file_name=f"{safe_name(title)}_전체대본.txt", mime="text/plain", use_container_width=True)
         with col_dl3:
             if st.session_state.arc:
                 csv_lines = ["EP,핵심사건,감정모드,클리프행어유형,클리프행어,도파민,과금"]
@@ -1672,7 +1678,7 @@ with tab_create:
                             f"{ep.get('dopamine_moment','').replace(',','；')},{pay}"
                         )
                 st.download_button("📊 아크 CSV", "\n".join(csv_lines).encode("utf-8-sig"),
-                    file_name=f"{title}_아크.csv", mime="text/csv", use_container_width=True)
+                    file_name=f"{safe_name(title)}_아크.csv", mime="text/csv", use_container_width=True)
         with col_dl3:
             if st.button("🔄 전체 초기화", use_container_width=True):
                 for k in ["step","concept","arc","blocks","convert_result","block_modes","pilot_text"]:
@@ -1869,7 +1875,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v2.7 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v2.8 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -1944,6 +1950,6 @@ with tab_convert:
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.7 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.8 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )
