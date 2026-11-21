@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v2.9 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v3.0 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -15,10 +15,14 @@ from datetime import datetime
 import importlib
 import prompt as P
 import doc_import
+import os
+import uuid
+import tempfile
+import hashlib
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.9.0"
+EXPECTED_ENGINE_VERSION = "3.0.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -176,6 +180,125 @@ def init():
         if k not in st.session_state:
             st.session_state[k] = v
 init()
+
+
+# ─── 작업 저장 · 불러오기 · 자동 보관 (v3.0) ─────
+# 컨셉·아크·원고는 서버의 임시 기억에만 있어서, 연결이 끊기면 사라진다.
+# (1) 파일로 저장하고 다시 올려 이어 쓴다. (2) 단계가 끝날 때마다 서버에 자동 보관하고,
+#     연결이 다시 맺어지면 되살린다.
+WORK_STATE_KEYS = ["step", "concept", "arc", "blocks", "block_modes", "block_checks",
+                   "premise", "premise_check", "producer_note", "author_fixed",
+                   "selected_block", "convert_result", "pilot_text"]
+WORK_WIDGET_KEYS = ["tone_key", "lead_key", "subtitle_key", "paywall_key", "target_key",
+                    "ai_mode_key", "auto_check_key", "fs", "mkt", "rtg", "total_eps_key",
+                    "premise_input", "protagonist_input", "secrets_input", "villain_input",
+                    "sq_input", "hint_input", "custom_input", "pn_input", "skip_premise"]
+INT_KEYED = ["blocks", "block_modes", "block_checks"]
+AUTOSAVE_DIR = os.path.join(tempfile.gettempdir(), "shortform_engine_autosave")
+
+
+def export_work():
+    """지금 작업을 저장용 dict로 만든다."""
+    data = {"_engine": "shortform-engine", "_version": EXPECTED_ENGINE_VERSION,
+            "_saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "state": {k: st.session_state.get(k) for k in WORK_STATE_KEYS},
+            "widgets": {k: st.session_state.get(k) for k in WORK_WIDGET_KEYS if k in st.session_state}}
+    return data
+
+
+def work_json():
+    return json.dumps(export_work(), ensure_ascii=False, indent=1, default=str)
+
+
+def import_work(data):
+    """저장된 작업을 세션에 되돌린다. 위젯이 그려지기 전에 불러야 한다."""
+    if not isinstance(data, dict) or data.get("_engine") != "shortform-engine":
+        raise ValueError("이 엔진의 작업 파일이 아닙니다.")
+    state = data.get("state") or {}
+    for k in WORK_STATE_KEYS:
+        if k not in state:
+            continue
+        v = state[k]
+        if k in INT_KEYED and isinstance(v, dict):   # JSON은 숫자 키를 글자로 바꾼다
+            v = {int(kk) if str(kk).isdigit() else kk: vv for kk, vv in v.items()}
+        if k in ("blocks", "block_modes", "block_checks") and v is None:
+            v = {}
+        st.session_state[k] = v
+    for k, v in (data.get("widgets") or {}).items():
+        if k in WORK_WIDGET_KEYS and v is not None:
+            st.session_state[k] = v
+    # 프로듀서 노트 칸은 보관된 노트와 같게 맞춘다. (칸이 비어 있으면 노트를 지워 버린다)
+    st.session_state["pn_input"] = st.session_state.get("producer_note") or ""
+    if st.session_state.get("total_eps_key") not in (20, 30, 50, 80, 90, 100):
+        st.session_state["total_eps_key"] = 100
+
+
+def _work_id():
+    """이 브라우저 탭의 작업 번호. 주소창에 붙여 두어 연결이 다시 맺어져도 같은 번호를 쓴다."""
+    try:
+        wid = st.query_params.get("w")
+        if not wid or not re.fullmatch(r"[0-9a-f]{16,32}", str(wid)):
+            wid = uuid.uuid4().hex[:20]
+            st.query_params["w"] = wid
+        return str(wid)
+    except Exception:
+        return ""
+
+
+def _autosave_path(wid):
+    return os.path.join(AUTOSAVE_DIR, f"{wid}.json")
+
+
+def autosave():
+    """컨셉이 있으면 서버에 보관한다. 내용이 바뀌었을 때만 쓴다."""
+    wid = st.session_state.get("_wid")
+    if not wid or not st.session_state.get("concept"):
+        return
+    try:
+        raw = work_json()
+        digest = hashlib.md5(raw.encode("utf-8")).hexdigest()
+        if st.session_state.get("_autosave_digest") == digest:
+            return
+        os.makedirs(AUTOSAVE_DIR, exist_ok=True)
+        tmp = _autosave_path(wid) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(raw)
+        os.replace(tmp, _autosave_path(wid))
+        st.session_state["_autosave_digest"] = digest
+    except Exception:
+        pass   # 보관 실패가 집필을 막으면 안 된다
+
+
+def try_autorestore():
+    """새로 맺어진 연결인데 같은 작업 번호의 보관본이 있으면 되살린다."""
+    if st.session_state.get("_restore_checked"):
+        return
+    st.session_state["_restore_checked"] = True
+    wid = st.session_state.get("_wid")
+    if not wid or st.session_state.get("concept"):
+        return
+    path = _autosave_path(wid)
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        import_work(data)
+        st.session_state["_restored_note"] = f"연결이 끊겼다가 다시 이어졌습니다. {data.get('_saved_at','')}에 보관한 작업을 되살렸습니다."
+    except Exception:
+        pass
+
+
+# 위젯이 그려지기 전에: 올린 작업 파일 적용 → 자동 되살리기
+if st.session_state.get("_work_upload_pending") is not None:
+    try:
+        import_work(st.session_state["_work_upload_pending"])
+        st.session_state["_restored_note"] = "작업 파일을 불러왔습니다. 이어서 쓰면 됩니다."
+    except Exception as e:
+        st.session_state["_restore_error"] = str(e)
+    st.session_state["_work_upload_pending"] = None
+st.session_state["_wid"] = st.session_state.get("_wid") or _work_id()
+try_autorestore()
 
 
 # ─── 유틸리티 ─────────────────────────────────────
@@ -408,7 +531,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.9 · {datetime.now().strftime('%Y-%m-%d')}")
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v3.0 · {datetime.now().strftime('%Y-%m-%d')}")
     r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
@@ -627,8 +750,36 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.9 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.0 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
+
+# ─── 작업 저장 · 불러오기 ─────────────────────────
+if st.session_state.get("_restored_note"):
+    st.success(st.session_state.pop("_restored_note"))
+if st.session_state.get("_restore_error"):
+    st.error("작업 파일을 불러오지 못했습니다: " + st.session_state.pop("_restore_error"))
+with st.expander("💾 작업 저장 · 불러오기 — 컨셉·아크·원고를 파일로 보관하고 이어 씁니다"):
+    col_sv, col_ld = st.columns(2)
+    with col_sv:
+        if st.session_state.concept:
+            _t = st.session_state.concept.get("title", "shortform")
+            _done = len(st.session_state.blocks or {})
+            st.download_button(
+                f"💾 지금 작업 저장 (블록 {_done}개 포함)", work_json(),
+                file_name=f"{safe_name(_t)}_작업.json", mime="application/json",
+                use_container_width=True, key="work_save_btn")
+            st.caption("단계가 끝날 때마다 서버에도 자동으로 보관합니다. 연결이 끊겼다 이어지면 되살립니다. "
+                       "서버가 다시 시작되면 자동 보관본은 사라지니, 긴 작업은 파일로도 저장해 두세요.")
+        else:
+            st.caption("컨셉을 만든 뒤부터 저장할 수 있습니다.")
+    with col_ld:
+        _wf = st.file_uploader("작업 파일 불러오기 (.json)", type=["json"], key="work_file")
+        if _wf is not None and st.button("📂 이 파일로 이어 쓰기", use_container_width=True, key="work_load_btn"):
+            try:
+                st.session_state["_work_upload_pending"] = json.loads(_wf.getvalue().decode("utf-8"))
+                st.rerun()
+            except Exception:
+                st.error("파일을 읽지 못했습니다. 이 엔진에서 저장한 .json 파일인지 확인해 주세요.")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
 with st.expander("🎬 프로듀서 노트 — 모든 단계에 반영됩니다", expanded=bool(st.session_state.producer_note)):
@@ -1146,6 +1297,7 @@ with tab_create:
                     st.session_state.author_fixed = custom_idea
                     st.session_state.concept = result
                     st.session_state.step = 1
+                    autosave()
                     st.rerun()
                 else:
                     st.error("생성 실패. 다시 시도하세요.")
@@ -1316,6 +1468,7 @@ with tab_create:
             if result:
                 st.session_state.arc = result
                 st.session_state.step = 2
+                autosave()
                 st.rerun()
 
         if st.session_state.arc:
@@ -1378,7 +1531,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.9 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v3.0 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1619,6 +1772,7 @@ with tab_create:
                         rt, check = write_block_checked(make_prompt, st.session_state.concept, bn)
                         st.session_state.blocks[bn] = rt
                         st.session_state.block_checks[bn] = check
+                        autosave()
                         st.rerun()
 
         # 집필된 블록 요약 (상세는 블록 선택 패널에서)
@@ -1641,7 +1795,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.9\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v3.0\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1876,7 +2030,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v2.9 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v3.0 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -1949,8 +2103,9 @@ with tab_convert:
                 '</div>', unsafe_allow_html=True
             )
 
+autosave()
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.9 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.0 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )

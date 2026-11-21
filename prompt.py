@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "2.9.0"
+ENGINE_VERSION = "3.0.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -291,10 +291,11 @@ TITLE_RULE = """- title은 요즘 숏폼 드라마 제목처럼 쓴다. 제목�
 def secret_count(total_eps=100):
     """총 화수에 맞는 핵심 비밀 개수. 화수가 길수록 이야기를 끌고 갈 비밀이 더 필요하다."""
     n = int(total_eps)
-    if n <= 30: return 3
-    if n <= 50: return 4
-    if n <= 80: return 6
-    return 8
+    # 마지막 칸은 '최종 비밀' 몫이다. (앞의 비밀이 일찍 새도 끝에 더 큰 것이 남게)
+    if n <= 30: return 4
+    if n <= 50: return 5
+    if n <= 80: return 7
+    return 9
 
 
 def build_premise_check_prompt(premise):
@@ -2593,7 +2594,10 @@ def build_concept_prompt(formula_key, protagonist, villain,
 
 {JSON_RULES}
 - paywall_design의 항목 이름(ep16_…, ep20_…)은 그대로 둔다. 이름의 숫자와 상관없이 내용은 과금 관문 EP⟦PW⟧ 기준으로 쓴다.
-- secrets 가운데 가장 큰 비밀의 reveal_ep는 ⟦PW⟧.
+- secrets의 첫 비밀은 reveal_ep ⟦PW⟧. 앞부분에서 가장 센 것을 둔다.
+- 비밀은 뒤로 갈수록 커진다. 막장은 끝으로 갈수록 세져야 한다. 뒤의 비밀은 앞의 비밀을 작게 만든다.
+  (커지는 길: 한 번의 범행 → 되풀이된 범행 → 공범 → 핏줄·출생 → 처음부터 짜인 판)
+- 마지막 비밀은 '최종 비밀'이다. reveal_ep는 마지막 10% 안. 1화부터 관객이 믿어 온 것을 뒤집는, 이 작품에서 가장 큰 비밀이다. 앞의 비밀들과 같은 물건·같은 수법을 쓰지 않는다.
 - protagonist.scroll_stop은 충돌이나 대비의 그림으로 쓴다. (두 사람이 이미 부딪히고 있다 / 한 화면에 극과 극이 함께 있다)
 - protagonist.age는 타겟의 나이대 안에서 정한다.
 {cast_rule}
@@ -2628,7 +2632,7 @@ def secret_plan_block(concept, start_ep, end_ep, unit="청크"):
         ep = _secret_ep(sec)
         line = f"- EP{ep}: {sec.get('secret','')} → {sec.get('impact','')}"
         (done if ep < start_ep else now if ep <= end_ep else later).append(line)
-    out = ["", "[비밀 일정표 — 이 작품을 끝까지 끌고 가는 연료다. 일정을 지킨다]"]
+    out = ["", "[비밀 일정표 — 이 작품을 끝까지 끌고 가는 연료다]"]
     if done:
         out.append("이미 터진 비밀 (다시 폭로하지 않는다. 그 결과만 이어받는다):")
         out += done
@@ -2638,8 +2642,13 @@ def secret_plan_block(concept, start_ep, end_ep, unit="청크"):
     else:
         out.append(f"이 {unit}에서 새로 터지는 비밀은 없다. 직전에 터진 비밀의 결과로 판을 굴린다.")
     if later:
-        out.append(f"아직 감춰 둘 비밀 (이 {unit}에서 드러내지 않는다. 이 비밀에 쓰일 물건·수법을 미리 꺼내 쓰지도 않는다):")
+        out.append("뒤에 터질 비밀 (아껴 둔다):")
         out += later
+    out.append(
+        "★ 비밀이 일정보다 일찍 새어 나왔을 때: 막으려고 이야기를 늦추지 않는다. "
+        "그 비밀은 이미 쓴 것으로 치고, 원래 터지기로 한 화에는 그보다 한 단계 더 큰 비밀을 새로 만들어 터뜨린다. "
+        "같은 물건 뒤에 숨은 더 큰 사실이어야 한다(혼자 한 일이 아니었다 / 처음이 아니었다 / 시킨 사람이 따로 있다 / 핏줄이 다르다). "
+        "같은 내용을 한 번 더 폭로하는 것은 금지.")
     return "\n".join(out) + "\n"
 
 
@@ -2665,6 +2674,9 @@ def check_arc_chunk(blocks, prior_phases=None):
             issues.append(f"블록{b.get('block_no','?')}의 국면 이름 '{ph}'이 앞 블록과 겹친다. 다른 국면이어야 한다.")
         if key:
             seen.append(key)
+        m = ARC_RULE_WORDS.search(ph)
+        if m:
+            issues.append(f"블록{b.get('block_no','?')}의 국면 이름 '{ph}': '{m.group(1)}'은 규칙의 이름이다. 그 블록에서 벌어지는 일로 이름을 붙인다.")
         for e in b.get("episodes", []):
             sm = str(e.get("summary", ""))
             m = ARC_REPEAT_WORDS.search(sm)
