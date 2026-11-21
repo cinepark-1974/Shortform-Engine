@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "2.5.2"
+ENGINE_VERSION = "2.6.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -274,6 +274,15 @@ def premise_block(premise=""):
         return ""
     return (f"\n[한 문장 전제 — 이 작품의 뿌리. 로그라인, EP1, 아크가 모두 여기서 나온다]\n{premise}\n"
             f"전제에 적힌 인물, 사건, 숫자를 바꾸지 않는다. 전제에 없는 설정으로 전제를 덮지 않는다.\n")
+
+
+def secret_count(total_eps=100):
+    """총 화수에 맞는 핵심 비밀 개수. 화수가 길수록 이야기를 끌고 갈 비밀이 더 필요하다."""
+    n = int(total_eps)
+    if n <= 30: return 3
+    if n <= 50: return 4
+    if n <= 80: return 6
+    return 8
 
 
 def build_premise_check_prompt(premise):
@@ -2577,7 +2586,9 @@ def build_concept_prompt(formula_key, protagonist, villain,
 {cast_rule}
 - dialogue_tone은 예시 대사 1개 포함. 추상 설명 금지.
 - villain.specific_evil은 추상어 금지. 실제 행동으로.
-- secrets 정확히 3개.
+- secrets 정확히 {secret_count(total_eps)}개. 총 {int(total_eps)}화를 끌고 갈 만큼 있어야 한다.
+- secrets의 reveal_ep는 한 구간에 몰지 않고 처음부터 끝까지 흩어 놓는다. 이웃한 두 비밀 사이는 15화를 넘기지 않는다.
+- secrets는 서로 다른 비밀이다. 같은 비밀을 말만 바꿔 둘로 세지 않는다. 비밀 하나가 드러날 때마다 누가 유리한지, 무엇이 걸렸는지가 바뀐다.
 - logline은 주인공+목표+장애물+판돈 구조 엄수."""
 
 
@@ -2622,7 +2633,7 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 
     prev_block = ""
     if prev_summary:
-        prev_block = f"\n[이전 청크 요약 — 이어서 설계할 것]\n{prev_summary}\n"
+        prev_block = f"\n[이전 청크 요약과 이미 일어난 일 — 이어서 설계할 것. 여기 있는 사건은 다시 쓰지 않는다]\n{prev_summary}\n"
 
     paywall_note = ""
     if chunk == 1:
@@ -2688,6 +2699,11 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 - 굴욕이 먼저 쌓여야 역전의 도파민이 크다
 - 통쾌함은 예측 불가 타이밍에 (간헐적 강화)
 - 클리프행어 유형 변주: 직전 블록과 같은 유형 연속 금지
+- 10화(두 블록)마다 싸움의 판이 바뀐다. 새 무기가 생긴다 / 새 비밀이 드러난다 / 편이 바뀐다 / 걸린 것이 커진다 가운데 하나가 일어난다.
+- 이미 드러난 비밀과 정체는 다시 폭로하지 않는다. [이미 일어난 일]에 있는 사건은 결과만 이어받는다.
+  나쁨: EP15 "[조력자] 정체 폭로" → EP33 "[조력자] 정체 폭로" (같은 폭로를 두 번)
+  좋음: EP15 "[조력자] 정체 폭로" → EP33 "정체 탓에 [주인공] 쫓겨남" (폭로의 결과가 새 사건이 된다)
+- 앞 블록과 같은 사건을 장소나 소품만 바꿔 되풀이하지 않는다. 블록의 국면 이름이 앞의 어느 블록과도 겹치지 않는다.
 
 [JSON 스키마 — 이 청크의 {n_blocks}블록(EP {start_ep}~{end_ep})만 출력. 간결하게!]
 {{
@@ -2805,7 +2821,8 @@ def build_block_prompt(concept, arc_block, block_no,
         )
     ep_list = "\n".join(ep_lines)
 
-    prev = f"\n[직전 클리프행어]\n{prev_block_summary}" if prev_block_summary else ""
+    prev = (f"\n[앞에서 일어난 일과 직전 원고의 끝 — 이미 드러난 비밀·정체를 인물이 처음 듣는 것처럼 다시 쓰지 않는다]\n{prev_block_summary}"
+            if prev_block_summary else "")
 
     # 감정 모드 지시
     emotional_block = ""

@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v2.5 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v2.6 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -18,7 +18,7 @@ import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.5.2"
+EXPECTED_ENGINE_VERSION = "2.6.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -400,7 +400,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.5 · {datetime.now().strftime('%Y-%m-%d')}")
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.6 · {datetime.now().strftime('%Y-%m-%d')}")
     r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
@@ -436,6 +436,23 @@ CAT_COLOR = {
     "怒 분노계":"#D32F2F","哀 슬픔계":"#7B68EE","喜 기쁨계":"#FF69B4",
     "樂 쾌감계":"#2EC484","張 긴장계":"#FF8C00"
 }
+
+
+def arc_ledger(blocks, before_ep=None):
+    """아크에서 이미 일어난 일을 'EP n: 사건' 한 줄씩으로 모은다. 같은 사건을 되풀이하지 않게 하는 장부."""
+    lines = []
+    for b in blocks or []:
+        for e in b.get("episodes", []):
+            try:
+                n = int(e.get("ep", 0))
+            except (TypeError, ValueError):
+                continue
+            if before_ep is not None and n >= before_ep:
+                continue
+            ev = str(e.get("summary", "")).strip()
+            if ev:
+                lines.append(f"EP{n}: {ev}")
+    return "\n".join(lines)
 
 
 def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder):
@@ -489,7 +506,8 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         all_milestones.extend(result.get("dopamine_milestones", []))
         chunk_summary = result.get("chunk_summary", "")
         all_summaries.append(f"[EP{start_ep}~{end_ep}] {chunk_summary}")
-        prev_summary = "\n".join(all_summaries)
+        prev_summary = ("\n".join(all_summaries)
+                        + "\n\n[이미 일어난 일 — 화별]\n" + arc_ledger(all_blocks))
         progress_placeholder.success(f"✅ 청크 {chunk}/{total_chunks} 완료 — {len(result.get('blocks',[]))}블록")
 
     # 병합
@@ -580,7 +598,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.5 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.6 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
@@ -1329,7 +1347,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.5 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.6 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1556,6 +1574,9 @@ with tab_create:
                     if bn > 1 and (bn-1) in st.session_state.blocks:
                         t = st.session_state.blocks[bn-1]
                         prev_s = t[-300:] if len(t)>300 else t
+                    _ledger = arc_ledger(st.session_state.arc.get("blocks", []), before_ep=(bn - 1) * 5 + 1)
+                    if _ledger:
+                        prev_s = "[앞에서 일어난 일 — 화별]\n" + _ledger + ("\n\n[직전 원고의 끝]\n" + prev_s if prev_s else "")
                     with st.spinner(f"블록{bn} {mode_disp} 각본 집필 중... (Opus)"):
                         def make_prompt(rewrite_note="", _blk=blk, _bn=bn, _prev=prev_s, _modes=default_modes):
                             return P.build_block_prompt(
@@ -1589,7 +1610,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.5\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.6\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1824,7 +1845,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v2.5 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v2.6 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -1899,6 +1920,6 @@ with tab_convert:
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.5 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.6 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )
