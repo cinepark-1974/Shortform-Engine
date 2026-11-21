@@ -18,7 +18,7 @@ import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.8.0"
+EXPECTED_ENGINE_VERSION = "2.8.1"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -28,7 +28,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 MODEL_WRITE = P.MODEL_WRITE   # claude-opus-4-6  — 블록 집필
 MODEL_PLAN  = P.MODEL_PLAN    # claude-sonnet-4-6 — 컨셉·아크·변환
 
-MAX_TOKENS_CONCEPT = 6000
+MAX_TOKENS_CONCEPT = 10000  # 100화는 비밀 8개라 컨셉이 길다
 MAX_TOKENS_IMPORT  = 4000   # 문서 → 입력칸 채우기
 MAX_TOKENS_ARC     = 12000  # 청크당 5블록(25화) — 4회 호출
 MAX_TOKENS_BLOCK   = 12000
@@ -805,7 +805,7 @@ def show_import_report():
 
 def run_premise_check(premise):
     """한 문장 전제에 바닥·뒤집는 장치·약속된 쾌감이 있는지 점검해 세션에 담는다."""
-    raw = call_claude(P.build_premise_check_prompt(premise), 1200, temperature=0)
+    raw = call_claude(P.build_premise_check_prompt(premise), 1200)
     res = safe_json(raw) or {}
     st.session_state.premise_check = {"premise": premise, "result": res}
     return res
