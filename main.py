@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v3.0 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v3.1 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -11,7 +11,7 @@ import anthropic
 import json
 import re
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import importlib
 import prompt as P
 import doc_import
@@ -22,7 +22,7 @@ import hashlib
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "3.0.1"
+EXPECTED_ENGINE_VERSION = "3.1.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -200,7 +200,7 @@ AUTOSAVE_DIR = os.path.join(tempfile.gettempdir(), "shortform_engine_autosave")
 def export_work():
     """지금 작업을 저장용 dict로 만든다."""
     data = {"_engine": "shortform-engine", "_version": EXPECTED_ENGINE_VERSION,
-            "_saved_at": (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M") + " (한국 시간)",
+            "_saved_at": (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M") + " (한국 시간)",
             "state": {k: st.session_state.get(k) for k in WORK_STATE_KEYS},
             "widgets": {k: st.session_state.get(k) for k in WORK_WIDGET_KEYS if k in st.session_state}}
     return data
@@ -531,7 +531,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v3.0 · {datetime.now().strftime('%Y-%m-%d')}")
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v3.1 · {datetime.now().strftime('%Y-%m-%d')}")
     r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
@@ -750,7 +750,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.0 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.1 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 작업 저장 · 불러오기 ─────────────────────────
@@ -997,14 +997,15 @@ def write_block_checked(make_prompt, concept, bn):
     make_prompt(rewrite_note) -> 프롬프트 문자열. 돌려주는 값: (대본, 점검 결과)"""
     rt = stream_block(make_prompt(""), f"블록{bn} 집필 중...", f"s_{bn}_0")
     fixed_text = (st.session_state.get("author_fixed") or "") + "\n" + (st.session_state.get("producer_note") or "")
-    check = P.check_script(rt, concept, ai_mode=ai_mode_key, fixed_text=fixed_text)
+    _prem = st.session_state.get("premise") or ""
+    check = P.check_script(rt, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem)
     tries = 0
     while auto_check_key and not check["ok"] and tries < 2:
         tries += 1
         st.warning(f"자동 점검 불합격 — 다시 씁니다 ({tries}/2)\n\n" + "\n".join(f"- {i}" for i in check["issues"][:6]))
         rt2 = stream_block(make_prompt(P.build_rewrite_note(check["issues"], rt)),
                            f"블록{bn} 다시 쓰는 중... ({tries}/2)", f"s_{bn}_{tries}")
-        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key, fixed_text=fixed_text)
+        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem)
         if len(check2["issues"]) <= len(check["issues"]):   # 더 나은 쪽을 남긴다
             rt, check = rt2, check2
     check["rewrites"] = tries
@@ -1542,7 +1543,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v3.0 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v3.1 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1806,7 +1807,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v3.0\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v3.1\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -2041,7 +2042,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v3.0 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v3.1 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -2117,6 +2118,6 @@ with tab_convert:
 autosave()
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.0 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.1 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )

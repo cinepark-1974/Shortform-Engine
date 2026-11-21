@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "3.0.1"
+ENGINE_VERSION = "3.1.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -1265,6 +1265,8 @@ EP1_RULES = """[EP1 전용 기준 — 6개 모두 통과해야 EP1이다]
 ⑤ 작품 전제가 EP1 안에 다 나온다.
    EP1만 본 관객이 바닥(주인공이 어디까지 떨어졌나), 뒤집는 장치(무엇으로 뒤집나), 약속된 쾌감(끝까지 보면 무엇을 보나)을 한 문장으로 말할 수 있다.
    회귀·능력·유산 조건 같은 설정은 EP1에 전부 알린다. 주인공이 숨긴 정체가 있다면 그것만 암시 1개로 남긴다.
+   뒤집는 장치는 대사로 설명하지 말고 그림으로 보여 준다. 회귀(죽었다가 돌아옴)라면 EP1 첫 씬 안에 죽는 순간(누가, 어디서)과 눈을 뜨는 순간이 둘 다 나온다.
+   작가가 엔딩 대사를 정해 두었어도 이 그림은 빠지지 않는다. 엔딩 대사는 끝에, 뒤집는 장치는 처음에 둔다.
 ⑥ 엔딩은 주인공의 행동이나 적의 한마디. 둘 중 하나로 끝내고 결과는 보여 주지 않는다.
    (작가가 엔딩 대사를 정해 두었으면 그 대사가 엔딩이다. 누구의 대사든 그 대사로 화를 끝내고 뒤에 씬을 붙이지 않는다.)
    설명, 풍경, 혼자 생각에 잠긴 얼굴로 끝내지 않는다."""
@@ -3050,7 +3052,9 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 {supporting_block}
 {prev}
 
-[에피소드 계획]
+[에피소드 계획 — 각 화는 그 화에 적힌 사건을 쓴다]
+- 다른 화의 사건을 당겨 쓰지 않는다. (EP2에 적힌 "밥그릇 엎기"를 EP1에 먼저 쓰면 EP2가 같은 짓을 되풀이하게 된다)
+- 한 블록 안에서 같은 물건에 같은 짓(밥그릇을 엎는다, 약봉투를 뺏는다)을 두 화에 쓰지 않는다. 지문에 "다시", "또"가 필요하면 되풀이다.
 {ep_list}
 {emotional_block}
 {global_block}
@@ -3604,7 +3608,31 @@ def check_fixed_endings(parsed, fixed_text):
     return issues
 
 
-def check_script(text, concept=None, ai_mode=False, fixed_text=""):
+_REGRESS_PREMISE = re.compile(r"(눈을 떠|눈을 떴|눈 떴|눈 떠|돌아와|돌아왔|돌아가|회귀|다시 태어|환생|되살아|죽기 전날|죽기 전으로|과거로)")
+_REGRESS_SCENE = re.compile(r"(눈을 뜬|눈이 떠|눈을 떴|눈 뜬|눈이 뜨|깨어난|깨어나|되살아|숨이 돌아|숨을 몰아|돌아왔|전생|그날로|그날이다|그날 아침)")
+_DEATH_SCENE = re.compile(r"(떨어지|떨어진|밀려|밀어|숨이 끊|숨이 멎|피가 번지|암전|추락|목이 졸|쓰러진|쓰러지)")
+
+
+def check_premise_in_ep1(parsed, premise):
+    """회귀 전제인데 EP1에 죽는 순간과 눈뜨는 순간이 없으면 잡는다."""
+    if not premise or not _REGRESS_PREMISE.search(premise):
+        return []
+    ep1 = next((e for e in parsed["episodes"] if e["ep"] == 1), None)
+    if ep1 is None:
+        return []
+    txt = " ".join(ln["text"] for sc in ep1["scenes"] for ln in sc["lines"] if not ln["speaker"])
+    miss = []
+    if not _DEATH_SCENE.search(txt):
+        miss.append("주인공이 죽는 순간(누가, 어디서)")
+    if not _REGRESS_SCENE.search(txt):
+        miss.append("주인공이 눈을 뜨는 순간")
+    if miss:
+        return [f"EP 1: 전제의 뒤집는 장치(회귀)가 그림으로 나오지 않습니다. 첫 씬 안에 {' / '.join(miss)}을 지문으로 넣습니다. "
+                f"대사로 설명하지 않습니다. 작가가 정한 엔딩 대사는 끝에 그대로 둡니다."]
+    return []
+
+
+def check_script(text, concept=None, ai_mode=False, fixed_text="", premise=""):
     """집필된 블록을 점검한다. 돌려주는 값:
     {"ok": bool, "issues": [사람이 읽는 문장], "stats": {...}}"""
     parsed = parse_script(text, concept)
@@ -3615,6 +3643,7 @@ def check_script(text, concept=None, ai_mode=False, fixed_text=""):
         return {"ok": False, "issues": ["EP 줄을 찾지 못했습니다. 출력 형식이 깨졌습니다."], "stats": stats}
 
     issues += check_fixed_endings(parsed, fixed_text)
+    issues += check_premise_in_ep1(parsed, premise)
 
     faces = set()
     for ep in eps:
