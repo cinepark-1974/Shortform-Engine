@@ -11,7 +11,7 @@ import anthropic
 import json
 import re
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 import importlib
 import prompt as P
 import doc_import
@@ -22,7 +22,7 @@ import hashlib
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "3.0.0"
+EXPECTED_ENGINE_VERSION = "3.0.1"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -200,7 +200,7 @@ AUTOSAVE_DIR = os.path.join(tempfile.gettempdir(), "shortform_engine_autosave")
 def export_work():
     """지금 작업을 저장용 dict로 만든다."""
     data = {"_engine": "shortform-engine", "_version": EXPECTED_ENGINE_VERSION,
-            "_saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "_saved_at": (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M") + " (한국 시간)",
             "state": {k: st.session_state.get(k) for k in WORK_STATE_KEYS},
             "widgets": {k: st.session_state.get(k) for k in WORK_WIDGET_KEYS if k in st.session_state}}
     return data
@@ -1297,6 +1297,12 @@ with tab_create:
                     st.session_state.author_fixed = custom_idea
                     st.session_state.concept = result
                     st.session_state.step = 1
+                    # 컨셉이 바뀌면 옛 아크와 옛 원고는 맞지 않는다. 함께 비운다.
+                    st.session_state.arc = None
+                    st.session_state.blocks = {}
+                    st.session_state.block_checks = {}
+                    st.session_state.block_modes = {}
+                    st.session_state.selected_block = None
                     autosave()
                     st.rerun()
                 else:
@@ -1468,6 +1474,11 @@ with tab_create:
             if result:
                 st.session_state.arc = result
                 st.session_state.step = 2
+                # 아크가 바뀌면 옛 원고는 맞지 않는다.
+                st.session_state.blocks = {}
+                st.session_state.block_checks = {}
+                st.session_state.block_modes = {}
+                st.session_state.selected_block = None
                 autosave()
                 st.rerun()
 
