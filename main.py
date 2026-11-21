@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v2.6 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v2.7 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -18,7 +18,7 @@ import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.6.0"
+EXPECTED_ENGINE_VERSION = "2.7.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -209,7 +209,7 @@ def safe_json(text):
         except: pass
     return None
 
-def call_claude(prompt, max_tokens, model=None, system=None):
+def call_claude(prompt, max_tokens, model=None, system=None, temperature=None):
     c = get_client()
     kwargs = {
         "model": model or MODEL_PLAN,
@@ -218,6 +218,8 @@ def call_claude(prompt, max_tokens, model=None, system=None):
     }
     if system:
         kwargs["system"] = system
+    if temperature is not None:
+        kwargs["temperature"] = temperature
     try:
         r = c.messages.create(**kwargs)
         return "".join(b.text for b in r.content if hasattr(b,"text")).strip()
@@ -400,7 +402,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.6 · {datetime.now().strftime('%Y-%m-%d')}")
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.7 · {datetime.now().strftime('%Y-%m-%d')}")
     r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
@@ -461,6 +463,7 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
     all_blocks = []
     all_milestones = []
     all_summaries = []
+    arc_issues_all = []
     prev_summary = ""
     subtitle_style = st.session_state.get("subtitle_key", P.DEFAULT_SUBTITLE)
     lead = st.session_state.get("lead_key", P.DEFAULT_LEAD)
@@ -477,11 +480,15 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
 
         result = None
         raw = ""
-        for attempt in range(2):  # 최대 2회 시도
-            with st.spinner(f"🔄 아크 청크 {chunk}/{total_chunks} 생성 중... (EP{start_ep}~{end_ep})"):
+        best, best_issues = None, None
+        fix_note = ""
+        prior_phases = [str(b.get("phase", "")) for b in all_blocks]
+        for attempt in range(3):  # 파싱 실패 재시도 1회 + 점검 불합격 재설계 1회
+            label = "다시 설계 중" if fix_note else "생성 중"
+            with st.spinner(f"🔄 아크 청크 {chunk}/{total_chunks} {label}... (EP{start_ep}~{end_ep})"):
                 raw = call_claude(
                     P.build_arc_prompt(concept, total_eps,
-                        producer_note=producer_note,
+                        producer_note=(producer_note + "\n\n" + fix_note).strip() if fix_note else producer_note,
                         chunk=chunk, total_chunks=total_chunks,
                         prev_summary=prev_summary,
                         subtitle_style=subtitle_style,
@@ -490,11 +497,22 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
                     MAX_TOKENS_ARC,
                     system=f"You are a concise JSON generator for a {int(total_eps)}-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean. 5) first_subtitle: {sub_limit}. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL {(end_ep - start_ep + 1) // 5} blocks of this chunk with ALL 5 episodes each. Never truncate."
                 )
-            result = safe_json(raw)
-            if result and result.get("blocks"):
-                break
-            if attempt == 0:
+            cand = safe_json(raw)
+            if not cand or not cand.get("blocks"):
+                if best is not None:
+                    break
                 progress_placeholder.warning(f"청크 {chunk} 파싱 실패 — 자동 재시도 중...")
+                continue
+            issues = P.check_arc_chunk(cand["blocks"], prior_phases)
+            if best is None or len(issues) < len(best_issues):
+                best, best_issues = cand, issues
+            if not issues or fix_note:
+                break
+            fix_note = P.build_arc_fix_note(issues)
+            progress_placeholder.warning(f"청크 {chunk}: 되풀이·규칙 용어 {len(issues)}건 — 다시 설계합니다.")
+        result = best
+        if result is not None:
+            arc_issues_all.extend(best_issues or [])
 
         if not result or not result.get("blocks"):
             st.error(f"청크 {chunk} 생성 실패 (2회 시도).")
@@ -507,6 +525,8 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         chunk_summary = result.get("chunk_summary", "")
         all_summaries.append(f"[EP{start_ep}~{end_ep}] {chunk_summary}")
         prev_summary = ("\n".join(all_summaries)
+                        + "\n\n[이미 쓴 블록 국면 이름 — 겹치지 않게]\n"
+                        + ", ".join(str(b.get("phase", "")) for b in all_blocks)
                         + "\n\n[이미 일어난 일 — 화별]\n" + arc_ledger(all_blocks))
         progress_placeholder.success(f"✅ 청크 {chunk}/{total_chunks} 완료 — {len(result.get('blocks',[]))}블록")
 
@@ -516,8 +536,11 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         "dopamine_milestones": all_milestones,
         "blocks": all_blocks,
         "paywall_eps": list(range(paywall_ep, paywall_ep + 5)),
+        "check_issues": arc_issues_all,
     }
-    progress_placeholder.success(f"✅ 아크 생성 완료 — {len(all_blocks)}블록 · {len(all_milestones)}개 도파민 마일스톤")
+    progress_placeholder.success(
+        f"✅ 아크 생성 완료 — {len(all_blocks)}블록 · {len(all_milestones)}개 도파민 마일스톤"
+        + (f" · 점검에 남은 것 {len(arc_issues_all)}건" if arc_issues_all else " · 되풀이 점검 통과"))
     return merged
 
 
@@ -598,7 +621,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.6 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.7 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
@@ -776,7 +799,7 @@ def show_import_report():
 
 def run_premise_check(premise):
     """한 문장 전제에 바닥·뒤집는 장치·약속된 쾌감이 있는지 점검해 세션에 담는다."""
-    raw = call_claude(P.build_premise_check_prompt(premise), 1200)
+    raw = call_claude(P.build_premise_check_prompt(premise), 1200, temperature=0)
     res = safe_json(raw) or {}
     st.session_state.premise_check = {"premise": premise, "result": res}
     return res
@@ -1347,7 +1370,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.6 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.7 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1610,7 +1633,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.6\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.7\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1845,7 +1868,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v2.6 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v2.7 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -1920,6 +1943,6 @@ with tab_convert:
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.6 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.7 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )

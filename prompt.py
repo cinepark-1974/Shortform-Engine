@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "2.6.0"
+ENGINE_VERSION = "2.7.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -2596,6 +2596,80 @@ def build_concept_prompt(formula_key, protagonist, villain,
 #  STEP 2: 100화 아크 설계
 # ═══════════════════════════════════════════════════════════════
 
+def _secret_ep(sec):
+    try:
+        return int(re.sub(r"\D", "", str(sec.get("reveal_ep", ""))) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def secret_plan_block(concept, start_ep, end_ep):
+    """컨셉의 비밀 일정표를 이 청크 기준으로 셋으로 나눠 보여 준다.
+    (v2.6까지는 아크가 비밀 일정표를 받지 못해, 비밀 하나를 일찍 꺼내 끝까지 되풀이했다)"""
+    secrets = [x for x in (concept.get("secrets") or []) if isinstance(x, dict)]
+    if not secrets:
+        return ""
+    done, now, later = [], [], []
+    for sec in sorted(secrets, key=_secret_ep):
+        ep = _secret_ep(sec)
+        line = f"- EP{ep}: {sec.get('secret','')} → {sec.get('impact','')}"
+        (done if ep < start_ep else now if ep <= end_ep else later).append(line)
+    out = ["", "[비밀 일정표 — 이 작품을 끝까지 끌고 가는 연료다. 일정을 지킨다]"]
+    if done:
+        out.append("이미 터진 비밀 (다시 폭로하지 않는다. 그 결과만 이어받는다):")
+        out += done
+    if now:
+        out.append(f"이 청크(EP {start_ep}~{end_ep})에서 터뜨릴 비밀 — 적힌 화에 그 비밀이 드러나는 사건을 넣고, 그 앞 3~4화는 그 비밀로 가는 길을 깐다:")
+        out += now
+    else:
+        out.append("이 청크에서 새로 터지는 비밀은 없다. 직전에 터진 비밀의 결과로 판을 굴린다.")
+    if later:
+        out.append("아직 감춰 둘 비밀 (이 청크에서 드러내지 않는다. 이 비밀에 쓰일 물건·수법을 미리 꺼내 쓰지도 않는다):")
+        out += later
+    return "\n".join(out) + "\n"
+
+
+# 아크 summary에 나오면 안 되는 말
+ARC_REPEAT_WORDS = re.compile(
+    r"(재모함|재조작|재시도|재개|재확보|재설치|다시 |또다시|또 한 번|[두세네] ?번째|다섯 ?번째|여섯 ?번째|\d ?번째|\d차)")
+ARC_RULE_WORDS = re.compile(
+    r"(응징|되갚음|역공|역습|반격 개시|과금 보상|함정 설치|위기 모면|고립시)")
+
+
+def check_arc_chunk(blocks, prior_phases=None):
+    """아크 한 청크를 글자만 보고 점검한다. 문제 목록(문장)을 돌려준다.
+
+    잡는 것: 같은 수법 되풀이를 알리는 말(재-, n번째, n차), 사건 대신 규칙 용어만 쓴 summary,
+    겹치는 블록 국면 이름.
+    """
+    issues = []
+    seen = [p.replace(" ", "") for p in (prior_phases or [])]
+    for b in blocks or []:
+        ph = str(b.get("phase", "")).strip()
+        key = ph.replace(" ", "")
+        if key and key in seen:
+            issues.append(f"블록{b.get('block_no','?')}의 국면 이름 '{ph}'이 앞 블록과 겹친다. 다른 국면이어야 한다.")
+        if key:
+            seen.append(key)
+        for e in b.get("episodes", []):
+            sm = str(e.get("summary", ""))
+            m = ARC_REPEAT_WORDS.search(sm)
+            if m:
+                issues.append(f"EP{e.get('ep','?')} '{sm}': '{m.group(1).strip()}'는 앞에 쓴 수법을 되풀이한다는 뜻이다. 앞에 없던 새 사건으로 바꾼다.")
+                continue
+            m = ARC_RULE_WORDS.search(sm)
+            if m:
+                issues.append(f"EP{e.get('ep','?')} '{sm}': '{m.group(1)}'은 규칙의 이름이지 사건이 아니다. 무엇으로 누구의 무엇을 했는지 물건과 행동으로 쓴다.")
+    return issues
+
+
+def build_arc_fix_note(issues):
+    """아크 청크를 다시 설계시킬 때 붙이는 안내."""
+    lines = "\n".join(f"- {x}" for x in issues[:20])
+    return ("[다시 설계 — 직전에 낸 안이 점검에 걸렸다. 아래를 모두 고쳐 이 청크 전체를 다시 낸다]\n"
+            + lines)
+
+
 @_paywall_filled
 def build_arc_prompt(concept, total_eps=100, producer_note="",
                      chunk=1, total_chunks=4, prev_summary="",
@@ -2646,7 +2720,8 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
             f"\n{PAYBACK_RULE}\n"
         )
     else:
-        paywall_note = "\n★ 과금 이후에도 3화마다 응징 1회를 유지한다. 응징 뒤에는 새 위기나 새 악역이 바로 온다.\n"
+        paywall_note = ("\n★ 과금 이후에도 3화마다 응징 1회를 유지한다. 응징 뒤에는 새 위기가 바로 온다.\n"
+                        "  ('응징'은 설계 용어다. summary에는 이 말을 쓰지 않고, 그 화에서 누가 무엇으로 무엇을 했는지 쓴다.)\n")
 
     return f"""[TASK] {total_eps}화 시즌 아크 — 청크 {chunk}/{total_chunks} (EP{start_ep}~{end_ep}, 블록{start_block}~{end_block})
 
@@ -2676,7 +2751,7 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 시소 패턴: {dopamine.get('seesaw_pattern','')}
 과금 관문(EP⟦PW⟧) 반전: {concept.get('paywall_design',{}).get('ep16_reversal','')}
 주인공 향: {lead_info['name']} — {lead_info['arc_hint']}
-{premise_block(premise)}{global_block}{pn_block}{prev_block}{paywall_note}{last_note}
+{premise_block(premise)}{global_block}{pn_block}{secret_plan_block(concept, start_ep, end_ep)}{prev_block}{paywall_note}{last_note}
 [이 청크의 국면 — EP {start_ep}~{end_ep}]
 {phase_text}
 
@@ -2704,6 +2779,13 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
   나쁨: EP15 "[조력자] 정체 폭로" → EP33 "[조력자] 정체 폭로" (같은 폭로를 두 번)
   좋음: EP15 "[조력자] 정체 폭로" → EP33 "정체 탓에 [주인공] 쫓겨남" (폭로의 결과가 새 사건이 된다)
 - 앞 블록과 같은 사건을 장소나 소품만 바꿔 되풀이하지 않는다. 블록의 국면 이름이 앞의 어느 블록과도 겹치지 않는다.
+- 한 번 쓴 수법은 다시 쓰지 않는다. summary에 "재-", "다시", "또", "두 번째", "2차" 같은 말이 필요하면 같은 사건을 되풀이한 것이다. 그 화를 앞에 없던 사건으로 바꾼다.
+  나쁨: EP45 "[악역], [주인공] 도둑 모함" → EP63 "[악역], 도둑 재모함" → EP83 "[악역], 도둑 재모함"
+  좋음: EP45 "[악역], [주인공] 도둑 모함" → EP63 "[악역], [강자] 인감 훔침" → EP83 "[악역], 간병인 매수"
+- 10화 묶음마다 싸움의 물건이 다르다. 앞 묶음이 약봉투였으면 다음 묶음은 통장, 그다음은 유언장처럼 손에 잡히는 물건이 바뀐다. 한 물건으로 20화를 넘기지 않는다.
+- summary는 사건이다. 규칙의 이름을 적지 않는다. "응징", "되갚음", "역공", "반격", "과금 보상", "함정", "위기"만으로 된 summary는 쓰지 않는다. 무엇으로 누구의 무엇을 했는지 물건과 행동을 적는다.
+  나쁨: "[주인공] 세 번째 작은 응징" / "[악역] 되갚음, [주인공] 고립" / "과금 보상"
+  좋음: "영수증으로 [악역] 거짓말 깸" / "[악역], [주인공] 수저 치움" / "[강자], [악역] 열쇠 회수"
 
 [JSON 스키마 — 이 청크의 {n_blocks}블록(EP {start_ep}~{end_ep})만 출력. 간결하게!]
 {{
