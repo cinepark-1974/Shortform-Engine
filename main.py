@@ -18,7 +18,7 @@ import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.5.1"
+EXPECTED_ENGINE_VERSION = "2.5.2"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -171,7 +171,7 @@ def init():
          "producer_note":"","selected_block":None,
          "premise":"","premise_check":None,"block_checks":{},
          "import_pending":None,"import_report":None,
-         "total_eps_key":100}
+         "total_eps_key":100,"author_fixed":""}
     for k,v in d.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -839,19 +839,56 @@ def block_has_paywall(bn):
     return any((bn - 1) * 5 < e <= bn * 5 for e in pw_eps)
 
 
+# 로맨스 축이 없는 작품에서 로맨스 감정 모드를 바꿔 끼울 짝
+NO_ROMANCE_SWAP = {"유혹": "긴장", "스윗": "연민", "설렘": "짜릿",
+                   "질투": "경멸", "미련": "배신감", "그리움": "상실"}
+
+
+def has_no_romance():
+    """컨셉에 로맨스 축이 없다고 적혀 있는지 본다."""
+    c = st.session_state.concept or {}
+    ld = c.get("location_design")
+    peak = str(ld.get("romance_peak", "")) if isinstance(ld, dict) else ""
+    text = peak + " " + (st.session_state.author_fixed or "") + " " + (st.session_state.premise or "")
+    return any(k in text for k in ("로맨스 없음", "로맨스 축 없음", "해당 없음", "로맨스는 없"))
+
+
 def default_block_modes(bn, blk):
-    """블록의 기본 감정 모드 5개. 직접 고른 것 > 아크가 화마다 정한 감정 > 기본 콤보 순."""
+    """블록의 기본 감정 모드 5개. 직접 고른 것 > 아크가 화마다 정한 감정 > 기본 콤보 순.
+
+    아크가 정한 감정이 몇 화만 비어 있거나 목록에 없는 말이면, 그 화만 기본 콤보로 메운다.
+    """
     chosen = st.session_state.block_modes.get(bn)
     if chosen:
         return chosen
+    no_rom = has_no_romance()
+    total_blocks = max(1, len((st.session_state.arc or {}).get("blocks", [])) or 20)
+    pos = bn / total_blocks
+    if block_has_paywall(bn): combo = P.EMOTIONAL_MODE_COMBOS["과금_전환"]
+    elif pos <= 0.2: combo = P.EMOTIONAL_MODE_COMBOS["분노_축적"]
+    elif pos <= 0.55: combo = P.EMOTIONAL_MODE_COMBOS["감정_시소"]
+    elif pos <= 0.85: combo = P.EMOTIONAL_MODE_COMBOS["복수_시작" if no_rom else "로맨스_피크"]
+    else: combo = P.EMOTIONAL_MODE_COMBOS["클라이맥스"]
     arc_modes = [e.get("emotion_mode", "") for e in blk.get("episodes", [])]
-    if len(arc_modes) == 5 and all(m in P.EMOTIONAL_MODES for m in arc_modes):
-        return arc_modes
-    if block_has_paywall(bn): return P.EMOTIONAL_MODE_COMBOS["과금_전환"]
-    if bn <= 3: return P.EMOTIONAL_MODE_COMBOS["분노_축적"]
-    if bn <= 10: return P.EMOTIONAL_MODE_COMBOS["감정_시소"]
-    if bn <= 16: return P.EMOTIONAL_MODE_COMBOS["로맨스_피크"]
-    return P.EMOTIONAL_MODE_COMBOS["클라이맥스"]
+    modes = []
+    for i in range(5):
+        m = arc_modes[i] if i < len(arc_modes) else ""
+        modes.append(m if m in P.EMOTIONAL_MODES else combo[i])
+    if no_rom:
+        modes = [NO_ROMANCE_SWAP.get(m, m) for m in modes]
+    return modes
+
+
+def note_with_fixed():
+    """프로듀서 노트 + 작가가 커스텀 아이디어에 정해 둔 것. 아크와 집필에 그대로 넘긴다."""
+    note = st.session_state.producer_note or ""
+    fixed = (st.session_state.author_fixed or "").strip()
+    if fixed:
+        note = (note + "\n\n" if note else "") + (
+            "[작가가 정해 둔 것 — 반드시 지킨다]\n"
+            "따옴표 안의 대사는 글자 그대로 쓴다. 'EP1 엔딩'처럼 자리가 적힌 것은 그 자리에 넣는다.\n"
+            + fixed)
+    return note
 
 
 def china_tone_notice(market):
@@ -1057,6 +1094,7 @@ with tab_create:
                 result = safe_json(raw)
                 if result:
                     result["total_eps"] = total_eps
+                    st.session_state.author_fixed = custom_idea
                     st.session_state.concept = result
                     st.session_state.step = 1
                     st.rerun()
@@ -1225,7 +1263,7 @@ with tab_create:
             arc_progress = st.empty()
             result = generate_arc_chunks(
                 st.session_state.concept, total,
-                st.session_state.producer_note, arc_progress)
+                note_with_fixed(), arc_progress)
             if result:
                 st.session_state.arc = result
                 st.session_state.step = 2
@@ -1523,7 +1561,7 @@ with tab_create:
                             return P.build_block_prompt(
                                 st.session_state.concept, _blk, _bn, _prev,
                                 emotional_modes=_modes,
-                                producer_note=st.session_state.producer_note,
+                                producer_note=note_with_fixed(),
                                 premise=st.session_state.premise,
                                 rewrite_note=rewrite_note, **common_opts())
                         rt, check = write_block_checked(make_prompt, st.session_state.concept, bn)
