@@ -22,7 +22,7 @@ import hashlib
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "3.1.0"
+EXPECTED_ENGINE_VERSION = "3.1.1"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -353,17 +353,41 @@ def call_claude(prompt, max_tokens, model=None, system=None, temperature=None):
         r = c.messages.create(**kwargs)
         return "".join(b.text for b in r.content if hasattr(b,"text")).strip()
     except Exception as e:
-        st.error(f"API 호출 실패: {type(e).__name__}: {str(e)[:200]}")
+        st.error(api_error_text(e))
         return ""
+
+
+class APIStop(Exception):
+    """API가 거절해서 더 쓸 수 없을 때. 화면에 이유를 보여 주고 멈춘다."""
+
+
+def api_error_text(e):
+    """API 오류를 사람이 알아볼 말로 바꾼다."""
+    msg = str(e)
+    if "credit balance is too low" in msg:
+        return ("API 크레딧이 바닥났습니다. Anthropic 콘솔(Plans & Billing)에서 충전한 뒤 같은 버튼을 다시 누르세요. "
+                "지금까지 쓴 원고는 그대로 있습니다. 위쪽 '작업 저장'으로 파일도 받아 두세요.")
+    if "rate_limit" in msg or "429" in msg:
+        return "API 호출이 잠시 몰렸습니다. 1~2분 뒤 같은 버튼을 다시 누르세요."
+    if "overloaded" in msg or "529" in msg:
+        return "API 서버가 붐빕니다. 잠시 뒤 같은 버튼을 다시 누르세요."
+    if "prompt is too long" in msg:
+        return "프롬프트가 너무 길어 거절됐습니다. 프로듀서 노트나 커스텀 아이디어를 줄여 다시 시도하세요."
+    return f"API 호출 실패: {type(e).__name__}: {msg[:200]}"
+
 
 def call_stream(prompt, max_tokens, model=None):
     c = get_client()
-    with c.messages.stream(
-        model=model or MODEL_WRITE, max_tokens=max_tokens,
-        messages=[{"role":"user","content":prompt}]
-    ) as s:
-        for t in s.text_stream:
-            yield t
+    try:
+        with c.messages.stream(
+            model=model or MODEL_WRITE, max_tokens=max_tokens,
+            messages=[{"role":"user","content":prompt}]
+        ) as s:
+            for t in s.text_stream:
+                yield t
+    except Exception as e:
+        st.error(api_error_text(e))
+        raise APIStop(str(e))
 
 def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
     """숏폼 대본 텍스트를 실제 대본 포맷 DOCX로 변환한다.
@@ -1781,7 +1805,10 @@ with tab_create:
                                 producer_note=note_with_fixed(),
                                 premise=st.session_state.premise,
                                 rewrite_note=rewrite_note, **common_opts())
-                        rt, check = write_block_checked(make_prompt, st.session_state.concept, bn)
+                        try:
+                            rt, check = write_block_checked(make_prompt, st.session_state.concept, bn)
+                        except APIStop:
+                            st.stop()
                         st.session_state.blocks[bn] = rt
                         st.session_state.block_checks[bn] = check
                         autosave()
@@ -2005,7 +2032,11 @@ with tab_convert:
                         formula_key=cv_formula, **common_opts())
                     pilot_result = ""
                     pilot_ph = st.empty()
-                    for chunk in call_stream(pilot_prompt, MAX_TOKENS_PILOT, model=MODEL_WRITE):
+                    try:
+                        _pilot_stream = list(call_stream(pilot_prompt, MAX_TOKENS_PILOT, model=MODEL_WRITE))
+                    except APIStop:
+                        st.stop()
+                    for chunk in _pilot_stream:
                         pilot_result += chunk
                         if len(pilot_result) % 200 < 10:
                             pilot_ph.text_area("파일럿 집필 중...", pilot_result, height=300,
