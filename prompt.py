@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "2.8.1"
+ENGINE_VERSION = "2.9.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -1265,6 +1265,7 @@ EP1_RULES = """[EP1 전용 기준 — 6개 모두 통과해야 EP1이다]
    EP1만 본 관객이 바닥(주인공이 어디까지 떨어졌나), 뒤집는 장치(무엇으로 뒤집나), 약속된 쾌감(끝까지 보면 무엇을 보나)을 한 문장으로 말할 수 있다.
    회귀·능력·유산 조건 같은 설정은 EP1에 전부 알린다. 주인공이 숨긴 정체가 있다면 그것만 암시 1개로 남긴다.
 ⑥ 엔딩은 주인공의 행동이나 적의 한마디. 둘 중 하나로 끝내고 결과는 보여 주지 않는다.
+   (작가가 엔딩 대사를 정해 두었으면 그 대사가 엔딩이다. 누구의 대사든 그 대사로 화를 끝내고 뒤에 씬을 붙이지 않는다.)
    설명, 풍경, 혼자 생각에 잠긴 얼굴로 끝내지 않는다."""
 
 SOLO_RULE = """★ 주인공이 혼자 있는 씬은 전체의 10% 이하.
@@ -3006,7 +3007,7 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 [작품] {concept.get('title','')} | 시장: {market} | 수위: {rating_info['name']} | 톤: {tone_info['name']} | 주인공 향: {lead_info['name']} | 첫 자막: {sub_info['name']}
 [국면] {phase} / {theme} / {sweet_bitter} / 주력도파민: {dopamine_target}
 {target_block(target)}
-[규칙이 부딪힐 때의 순서] 수위 등급 금지 항목 > AI 제작 모드 > EP1 전용 기준 > 주인공 향 > 작품 톤 > 혼자 씬 한도·대사 8개 > 감정 모드 지침
+[규칙이 부딪힐 때의 순서] 수위 등급 금지 항목 > 작가가 정해 둔 것(지정 대사·엔딩) > AI 제작 모드 > EP1 전용 기준 > 주인공 향 > 작품 톤 > 혼자 씬 한도·대사 8개 > 감정 모드 지침
 [루프] {dopamine.get('addiction_loop','')} | [시소] {dopamine.get('seesaw_pattern','')}
 
 [수위 규정]
@@ -3273,7 +3274,7 @@ def build_pilot_prompt(convert_result, source_text="", market="한국", rating="
 제목: {sc.get('title', '')}
 로그라인: {sc.get('logline', '')}
 시장: {market} | 수위: {rating_info['name']} | 톤: {tone_info['name']} | 주인공 향: {lead_info['name']} | 첫 자막: {sub_info['name']}
-[규칙이 부딪힐 때의 순서] 수위 등급 금지 항목 > AI 제작 모드 > EP1 전용 기준 > 주인공 향 > 작품 톤 > 혼자 씬 한도·대사 8개 > 감정 모드 지침
+[규칙이 부딪힐 때의 순서] 수위 등급 금지 항목 > 작가가 정해 둔 것(지정 대사·엔딩) > AI 제작 모드 > EP1 전용 기준 > 주인공 향 > 작품 톤 > 혼자 씬 한도·대사 8개 > 감정 모드 지침
 {target_block(target)}
 {premise_block(premise)}{pn_block}
 [원본 핵심 갈등]
@@ -3547,7 +3548,51 @@ def _same_person(a, b):
     return a == b or a.endswith(b) or b.endswith(a)
 
 
-def check_script(text, concept=None, ai_mode=False):
+_FIXED_END_RE = re.compile(r'EP\s*(\d+)\s*(?:의\s*)?엔딩[^"“”\n]*["“]([^"”]+)["”]')
+
+
+def _norm(t):
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", t or "")
+
+
+def parse_fixed_endings(text):
+    """작가가 적어 둔 'EP1 엔딩 대사(누구): "…"' 꼴을 찾아 {화: 대사}로 돌려준다."""
+    return {int(m.group(1)): m.group(2).strip() for m in _FIXED_END_RE.finditer(text or "")}
+
+
+def check_fixed_endings(parsed, fixed_text):
+    """작가가 정한 엔딩 대사가 그 화의 마지막 대사인지 본다."""
+    issues = []
+    for ep_no, quote in parse_fixed_endings(fixed_text).items():
+        ep = next((e for e in parsed["episodes"] if e["ep"] == ep_no), None)
+        if ep is None:
+            continue
+        parts = [_norm(p) for p in re.split(r"[.!?…]+", quote) if _norm(p)]
+        if not parts:
+            continue
+        flat = [(si, ln) for si, sc in enumerate(ep["scenes"]) for ln in sc["lines"]]
+        dialog = [(i, si, ln) for i, (si, ln) in enumerate(flat) if ln["speaker"]]
+        whole = _norm(" ".join(ln["text"] for _, ln in flat))
+        missing = [p for p in parts if p not in whole]
+        if missing:
+            issues.append(f'EP {ep_no}: 작가가 정한 엔딩 대사 "{quote}"가 글자 그대로 들어 있지 않습니다. 그대로 넣습니다.')
+            continue
+        last_part = parts[-1]
+        hit = [d for d in dialog if last_part in _norm(d[2]["text"])]
+        if not hit:
+            issues.append(f'EP {ep_no}: 작가가 정한 엔딩 대사 "{quote}"가 대사 줄이 아닙니다. 인물의 대사로 넣습니다.')
+            continue
+        hit_i, hit_scene, _ = hit[-1]
+        later_dialog = [d for d in dialog if d[0] > hit_i]
+        later_scene = hit_scene < len(ep["scenes"]) - 1
+        if later_dialog or later_scene:
+            issues.append(f'EP {ep_no}: 작가가 정한 엔딩 대사 "{quote}" 뒤에 '
+                          f'{"씬이 더 붙어" if later_scene else "대사가 더"} 있습니다. '
+                          f'이 대사가 EP {ep_no}의 마지막 대사가 되게 순서를 바꾸고, 그 뒤에는 짧은 지문 한두 줄만 둡니다.')
+    return issues
+
+
+def check_script(text, concept=None, ai_mode=False, fixed_text=""):
     """집필된 블록을 점검한다. 돌려주는 값:
     {"ok": bool, "issues": [사람이 읽는 문장], "stats": {...}}"""
     parsed = parse_script(text, concept)
@@ -3556,6 +3601,8 @@ def check_script(text, concept=None, ai_mode=False):
     issues, stats = [], {"episodes": len(eps), "scenes": 0, "solo_scenes": 0, "per_ep": []}
     if not eps:
         return {"ok": False, "issues": ["EP 줄을 찾지 못했습니다. 출력 형식이 깨졌습니다."], "stats": stats}
+
+    issues += check_fixed_endings(parsed, fixed_text)
 
     faces = set()
     for ep in eps:
@@ -3567,7 +3614,7 @@ def check_script(text, concept=None, ai_mode=False):
                                 "inserts": len(inserts), "scenes": len(ep["scenes"])})
         if not dialog:
             issues.append(f"EP {ep['ep']}: 대사가 0줄입니다. 대사 8~12개로 다시 씁니다.")
-        elif len(dialog) < 5:
+        elif len(dialog) < 8:
             issues.append(f"EP {ep['ep']}: 대사가 {len(dialog)}줄뿐입니다. 대사 8~12개로 늘립니다.")
         if lines and ratio > INSERT_LIMIT:
             issues.append(f"EP {ep['ep']}: 화면 인서트(휴대폰·노트북)가 {len(lines)}줄 중 {len(inserts)}줄로 1/3을 넘습니다. "

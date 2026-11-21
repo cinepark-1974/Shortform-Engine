@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v2.8 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v2.9 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -18,7 +18,7 @@ import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.8.1"
+EXPECTED_ENGINE_VERSION = "2.9.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -408,7 +408,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     doc.add_paragraph(); doc.add_paragraph()
     ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.8 · {datetime.now().strftime('%Y-%m-%d')}")
+    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v2.9 · {datetime.now().strftime('%Y-%m-%d')}")
     r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
 
     buf = io.BytesIO()
@@ -541,7 +541,7 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         "arc_summary": " → ".join(all_summaries),
         "dopamine_milestones": all_milestones,
         "blocks": all_blocks,
-        "paywall_eps": list(range(paywall_ep, paywall_ep + 5)),
+        "paywall_eps": [max(1, paywall_ep - 1), paywall_ep],   # 관문 직전 화와 관문 화
         "check_issues": arc_issues_all,
     }
     progress_placeholder.success(
@@ -627,7 +627,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.8 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v2.9 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 프로듀서 노트 (전 단계 공통) ─────────────────
@@ -845,14 +845,15 @@ def write_block_checked(make_prompt, concept, bn):
     """블록을 쓰고 자동 점검한다. 걸리면 최대 2번 다시 쓴다.
     make_prompt(rewrite_note) -> 프롬프트 문자열. 돌려주는 값: (대본, 점검 결과)"""
     rt = stream_block(make_prompt(""), f"블록{bn} 집필 중...", f"s_{bn}_0")
-    check = P.check_script(rt, concept, ai_mode=ai_mode_key)
+    fixed_text = (st.session_state.get("author_fixed") or "") + "\n" + (st.session_state.get("producer_note") or "")
+    check = P.check_script(rt, concept, ai_mode=ai_mode_key, fixed_text=fixed_text)
     tries = 0
     while auto_check_key and not check["ok"] and tries < 2:
         tries += 1
         st.warning(f"자동 점검 불합격 — 다시 씁니다 ({tries}/2)\n\n" + "\n".join(f"- {i}" for i in check["issues"][:6]))
         rt2 = stream_block(make_prompt(P.build_rewrite_note(check["issues"], rt)),
                            f"블록{bn} 다시 쓰는 중... ({tries}/2)", f"s_{bn}_{tries}")
-        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key)
+        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key, fixed_text=fixed_text)
         if len(check2["issues"]) <= len(check["issues"]):   # 더 나은 쪽을 남긴다
             rt, check = rt2, check2
     check["rewrites"] = tries
@@ -882,7 +883,7 @@ def common_opts():
 
 def block_has_paywall(bn):
     """이 블록(5화)에 과금 구간의 화가 들어 있는가."""
-    pw_eps = (st.session_state.arc or {}).get("paywall_eps", list(range(paywall_key, paywall_key + 5)))
+    pw_eps = (st.session_state.arc or {}).get("paywall_eps", [max(1, paywall_key - 1), paywall_key])
     return any((bn - 1) * 5 < e <= bn * 5 for e in pw_eps)
 
 
@@ -1341,9 +1342,9 @@ with tab_create:
                 for blk in blocks:
                     for ep in blk.get("episodes",[]):
                         ep_no = ep.get("ep",0)
-                        paywall = ep_no in arc.get("paywall_eps", list(range(paywall_key, paywall_key + 5)))
+                        paywall = (ep_no == paywall_key)   # 과금 관문 화에만 표시. 그 앞은 FREE
                         badge = '<span style="background:var(--y);color:var(--navy);padding:1px 5px;border-radius:8px;font-size:.62rem;font-weight:800">💰</span>' if paywall else (
-                            '<span style="background:var(--g);color:white;padding:1px 5px;border-radius:8px;font-size:.62rem;font-weight:800">FREE</span>' if ep_no<=15 else "")
+                            '<span style="background:var(--g);color:white;padding:1px 5px;border-radius:8px;font-size:.62rem;font-weight:800">FREE</span>' if ep_no < paywall_key else "")
                         em = ep.get("emotion_mode","")
                         mode = P.EMOTIONAL_MODES.get(em,{})
                         mc = CAT_COLOR.get(P.EMOTION_CATEGORIES.get(mode.get("category","怒 분노계"),{}).get("name","")+"계","#888") if mode else "#888"
@@ -1377,7 +1378,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.8 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v2.9 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1640,7 +1641,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.8\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v2.9\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1875,7 +1876,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v2.8 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v2.9 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -1950,6 +1951,6 @@ with tab_convert:
 
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.8 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v2.9 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )
