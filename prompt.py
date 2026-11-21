@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "2.7.0"
+ENGINE_VERSION = "2.7.1"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -2603,7 +2603,7 @@ def _secret_ep(sec):
         return 0
 
 
-def secret_plan_block(concept, start_ep, end_ep):
+def secret_plan_block(concept, start_ep, end_ep, unit="청크"):
     """컨셉의 비밀 일정표를 이 청크 기준으로 셋으로 나눠 보여 준다.
     (v2.6까지는 아크가 비밀 일정표를 받지 못해, 비밀 하나를 일찍 꺼내 끝까지 되풀이했다)"""
     secrets = [x for x in (concept.get("secrets") or []) if isinstance(x, dict)]
@@ -2619,12 +2619,12 @@ def secret_plan_block(concept, start_ep, end_ep):
         out.append("이미 터진 비밀 (다시 폭로하지 않는다. 그 결과만 이어받는다):")
         out += done
     if now:
-        out.append(f"이 청크(EP {start_ep}~{end_ep})에서 터뜨릴 비밀 — 적힌 화에 그 비밀이 드러나는 사건을 넣고, 그 앞 3~4화는 그 비밀로 가는 길을 깐다:")
+        out.append(f"이 {unit}(EP {start_ep}~{end_ep})에서 터뜨릴 비밀 — 적힌 화에 그 비밀이 드러나는 사건을 넣고, 그 앞 3~4화는 그 비밀로 가는 길을 깐다:")
         out += now
     else:
-        out.append("이 청크에서 새로 터지는 비밀은 없다. 직전에 터진 비밀의 결과로 판을 굴린다.")
+        out.append(f"이 {unit}에서 새로 터지는 비밀은 없다. 직전에 터진 비밀의 결과로 판을 굴린다.")
     if later:
-        out.append("아직 감춰 둘 비밀 (이 청크에서 드러내지 않는다. 이 비밀에 쓰일 물건·수법을 미리 꺼내 쓰지도 않는다):")
+        out.append(f"아직 감춰 둘 비밀 (이 {unit}에서 드러내지 않는다. 이 비밀에 쓰일 물건·수법을 미리 꺼내 쓰지도 않는다):")
         out += later
     return "\n".join(out) + "\n"
 
@@ -2905,6 +2905,11 @@ def build_block_prompt(concept, arc_block, block_no,
 
     prev = (f"\n[앞에서 일어난 일과 직전 원고의 끝 — 이미 드러난 비밀·정체를 인물이 처음 듣는 것처럼 다시 쓰지 않는다]\n{prev_block_summary}"
             if prev_block_summary else "")
+    try:
+        _bn = int(block_no)
+        prev += secret_plan_block(concept, (_bn - 1) * 5 + 1, _bn * 5, unit="블록")
+    except (TypeError, ValueError):
+        pass
 
     # 감정 모드 지시
     emotional_block = ""

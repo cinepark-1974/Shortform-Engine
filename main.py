@@ -18,7 +18,7 @@ import doc_import
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "2.7.0"
+EXPECTED_ENGINE_VERSION = "2.7.1"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -928,6 +928,7 @@ def note_with_fixed():
         note = (note + "\n\n" if note else "") + (
             "[작가가 정해 둔 것 — 반드시 지킨다]\n"
             "따옴표 안의 대사는 글자 그대로 쓴다. 'EP1 엔딩'처럼 자리가 적힌 것은 그 자리에 넣는다.\n"
+            "'엔딩 대사'로 정해 둔 것은 그 화의 마지막 대사다. 그 뒤에 대사나 씬을 더 붙이지 않는다.\n"
             + fixed)
     return note
 
