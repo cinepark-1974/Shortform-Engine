@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v3.1 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v3.2 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -22,7 +22,7 @@ import hashlib
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "3.1.1"
+EXPECTED_ENGINE_VERSION = "3.2.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -389,39 +389,117 @@ def call_stream(prompt, max_tokens, model=None):
         st.error(api_error_text(e))
         raise APIStop(str(e))
 
+# ─── DOCX 출력 스타일 (v3.2) ─────────────────────
+# 글꼴은 '바탕글(Normal)' 한 곳에만 둔다. Word의 스타일 창에서 바탕글 글꼴을 바꾸면 전체가 바뀐다.
+# 스타일 이름: 제목 · 에피소드헤더 · 자막 · 씬헤더 · 지문 · 캐릭터(대사) · 캐릭터이름 · 로그라인 · 표지머리 · 표지크레딧 · 끝문구
+DOCX_FONT = "HCR Batang"   # 함초롱바탕. 이 글꼴이 없는 컴퓨터에서는 비슷한 글꼴로 보이지만, 설정은 함초롱바탕으로 남는다.
+
+_DOCX_BDR = ('<w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="595959"/>'
+             '<w:bottom w:val="single" w:sz="4" w:space="4" w:color="595959"/></w:pBdr>')
+_DOCX_STYLES = [
+    ('SFCoverHead', 'paragraph', '표지머리', '<w:pPr><w:spacing w:before="2400"/><w:jc w:val="center"/></w:pPr>'),
+    ('SFLogline', 'paragraph', '로그라인', '<w:pPr><w:ind w:left="567" w:right="567"/><w:jc w:val="center"/></w:pPr><w:rPr><w:color w:val="8E8E99"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>'),
+    ('SFCredit', 'paragraph', '표지크레딧', '<w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:color w:val="8E8E99"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>'),
+    ('SFEpisode', 'paragraph', '에피소드헤더', '<w:pPr><w:keepNext/>' + _DOCX_BDR + '<w:spacing w:before="240" w:after="120" w:line="480" w:lineRule="auto"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:bCs/><w:color w:val="002060"/><w:spacing w:val="15"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>'),
+    ('SFSubtitle', 'paragraph', '자막', '<w:pPr><w:keepNext/><w:spacing w:after="80"/></w:pPr>'),
+    ('SFScene', 'paragraph', '씬헤더', '<w:pPr><w:keepNext/><w:spacing w:before="200" w:after="80" w:line="480" w:lineRule="auto"/></w:pPr><w:rPr><w:b/><w:bCs/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>'),
+    ('SFAction', 'paragraph', '지문', ''),
+    ('SFDialogue', 'paragraph', '캐릭터(대사)', '<w:pPr><w:tabs><w:tab w:val="left" w:pos="1417"/></w:tabs><w:spacing w:after="40" w:line="480" w:lineRule="auto"/><w:ind w:left="1417" w:hanging="1417"/></w:pPr><w:rPr><w:b/><w:bCs/></w:rPr>'),
+    ('SFCharName', 'character', '캐릭터이름', '<w:rPr><w:b/><w:bCs/></w:rPr>'),
+    ('SFBlock', 'paragraph', '블록표시', '<w:pPr><w:spacing w:before="480"/></w:pPr><w:rPr><w:b/><w:color w:val="191970"/><w:sz w:val="22"/></w:rPr>'),
+    ('SFEndNote', 'paragraph', '끝문구', '<w:pPr><w:spacing w:before="480"/><w:jc w:val="center"/></w:pPr><w:rPr><w:color w:val="AAAAAA"/><w:sz w:val="14"/><w:szCs w:val="14"/></w:rPr>'),
+]
+
+
+def _docx_setup_styles(doc):
+    """바탕글 글꼴·제목 스타일·사용자 스타일을 문서에 넣는다."""
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+    W = nsdecls('w')
+    st = doc.styles.element
+    fonts = f'<w:rFonts {W} w:ascii="{DOCX_FONT}" w:eastAsia="{DOCX_FONT}" w:hAnsi="{DOCX_FONT}" w:cs="{DOCX_FONT}"/>'
+    # 문서 기본값과 바탕글
+    for rpr in st.xpath('./w:docDefaults/w:rPrDefault/w:rPr'):
+        for f in rpr.xpath('./w:rFonts'): rpr.remove(f)
+        rpr.insert(0, parse_xml(fonts))
+    sn = doc.styles['Normal']
+    sn.font.size = Pt(10)
+    pf = sn.paragraph_format
+    pf.space_before = Pt(0); pf.space_after = Pt(0); pf.line_spacing = 1.5
+    rpr = sn.element.get_or_add_rPr()
+    for f in rpr.xpath('./w:rFonts'): rpr.remove(f)
+    rpr.insert(0, parse_xml(fonts))
+    # 제목 = heading 1 (탐색 창 1단계). 글꼴은 바탕글을 따른다.
+    h = doc.styles['Heading 1']
+    h.font.size = Pt(24); h.font.bold = True; h.font.color.rgb = RGBColor(0x36, 0x5F, 0x91)
+    h.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    h.paragraph_format.space_before = Pt(24); h.paragraph_format.space_after = Pt(12)
+    h.paragraph_format.line_spacing = 1.0
+    hr = h.element.get_or_add_rPr()
+    for f in hr.xpath('./w:rFonts'): hr.remove(f)
+    # 사용자 스타일
+    for sid, kind, name, props in _DOCX_STYLES:
+        base = 'DefaultParagraphFont' if kind == 'character' else 'Normal'
+        st.append(parse_xml(
+            f'<w:style {W} w:type="{kind}" w:customStyle="1" w:styleId="{sid}">'
+            f'<w:name w:val="{name}"/><w:basedOn w:val="{base}"/><w:qFormat/>{props}</w:style>'))
+
+
+def _docx_page_numbers(doc):
+    """쪽 번호: 표지는 번호 없음, 본문 첫 쪽이 1. 오른쪽 아래."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    sec = doc.sections[0]
+    sec.different_first_page_header_footer = True
+    pg = OxmlElement('w:pgNumType'); pg.set(qn('w:start'), '0')
+    mar = sec._sectPr.find(qn('w:pgMar'))
+    if mar is not None:
+        mar.addnext(pg)          # 순서 규칙: pgMar 바로 뒤
+    else:
+        sec._sectPr.append(pg)
+    # 기본 틀의 zoom에 빠진 값 채우기 (일부 프로그램이 거부하지 않도록)
+    for z in doc.settings.element.findall(qn('w:zoom')):
+        if z.get(qn('w:percent')) is None:
+            z.set(qn('w:percent'), '100')
+    p = sec.footer.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    for kind, txt in (('begin', None), (None, ' PAGE '), ('end', None)):
+        r = p.add_run()
+        if kind:
+            fc = OxmlElement('w:fldChar'); fc.set(qn('w:fldCharType'), kind); r._r.append(fc)
+        else:
+            it = OxmlElement('w:instrText'); it.set(qn('xml:space'), 'preserve'); it.text = txt; r._r.append(it)
+
+
 def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
-    """숏폼 대본 텍스트를 실제 대본 포맷 DOCX로 변환한다.
+    """숏폼 대본 텍스트를 대본 포맷 DOCX로 만든다. 모양은 전부 이름 있는 스타일로 준다.
     빈줄 규칙: 지문+지문=붙임, 지문↔대사=빈줄, 대사+대사=붙임, 씬 앞=빈줄."""
     doc = DocxDocument()
-
     section = doc.sections[0]
-    section.page_width = Inches(8.27)
-    section.page_height = Inches(11.69)
-    section.top_margin = Inches(0.85)
-    section.bottom_margin = Inches(0.72)
-    section.left_margin = Inches(0.72)
-    section.right_margin = Inches(0.72)
+    section.page_width = Cm(21.0)
+    section.page_height = Cm(29.7)
+    section.top_margin = Cm(2.16)
+    section.bottom_margin = Cm(1.83)
+    section.left_margin = Cm(1.83)
+    section.right_margin = Cm(1.83)
+    _docx_setup_styles(doc)
+    _docx_page_numbers(doc)
 
-    sn = doc.styles['Normal']
-    sn.font.name = '맑은 고딕'
-    sn.font.size = Pt(10)
-    sn.paragraph_format.space_after = Pt(0)
-    sn.paragraph_format.space_before = Pt(0)
-    sn.paragraph_format.line_spacing = 1.5
+    def add(text_, style=None):
+        p = doc.add_paragraph(style=style)
+        if text_:
+            p.add_run(text_)
+        return p
 
-    # 커버 페이지
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER; p.paragraph_format.space_before = Pt(120)
-    r = p.add_run("시나리오"); r.font.size = Pt(10); r.font.color.rgb = RGBColor(0x8E,0x8E,0x99)
-    for _ in range(3): doc.add_paragraph()
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run(title); r.font.size = Pt(24); r.font.bold = True; r.font.color.rgb = RGBColor(0x19,0x19,0x70)
+    # 표지
+    add("시나리오", "표지머리")
+    for _ in range(3): add("")
+    add(title, "Heading 1")
     if subtitle:
-        doc.add_paragraph()
-        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = p.add_run(subtitle); r.font.size = Pt(9); r.font.color.rgb = RGBColor(0x8E,0x8E,0x99)
-    for _ in range(6): doc.add_paragraph()
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run("기획 | 블루진픽처스"); r.font.size = Pt(9); r.font.color.rgb = RGBColor(0x8E,0x8E,0x99)
+        add("")
+        add(subtitle, "로그라인")
+    for _ in range(6): add("")
+    add("기획 | 블루진픽처스", "표지크레딧")
     doc.add_page_break()
 
     # 1단계: 줄 분류
@@ -438,125 +516,65 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
 
     classified = [(k, t) for k, t in (classify(l) for l in text.split("\n")) if k != 'SKIP']
 
-    # 2단계: 빈줄 규칙 + 지문 병합
-    output = []
-    stge_buf = []
+    # 2단계: 빈 줄 규칙을 한 가지로 맞춘다. 원고 안의 빈 줄은 무시하고 규칙대로 다시 넣는다.
+    #   EP→자막→씬→지문은 붙임 / 지문↔대사는 빈 줄 1 / 대사+대사, 지문+지문은 붙임 / 씬·EP 앞은 빈 줄 1
+    #   (지문은 줄마다 따로 둔다. 합치지 않는다.)
+    def need_blank(prev, cur):
+        if prev is None: return 0
+        if cur in ('EP', 'BLOCK'): return 1
+        if cur == 'SUBTITLE': return 0
+        if cur == 'SCENE': return 0 if prev in ('EP', 'SUBTITLE') else 1
+        if prev in ('EP', 'SUBTITLE', 'SCENE', 'BLOCK'): return 0
+        return 1 if prev != cur else 0
 
-    def flush_stge():
-        if stge_buf:
-            output.append(('STGE', ' '.join(stge_buf)))
-            stge_buf.clear()
-
+    output, prev = [], None
     for kind, txt in classified:
-        prev = output[-1][0] if output else 'BLANK'
-        if kind == 'EP':
-            flush_stge()
-            if prev != 'BLANK': output.append(('BLANK',''))
-            output.append((kind, txt))
-        elif kind == 'BLOCK':
-            flush_stge()
-            if prev != 'BLANK': output.append(('BLANK',''))
-            output.append((kind, txt))
-        elif kind == 'SUBTITLE':
-            flush_stge()
-            output.append((kind, txt))
-        elif kind == 'SCENE':
-            flush_stge()
-            if prev not in ('BLANK','EP','SUBTITLE'):
-                output.append(('BLANK',''))
-            output.append((kind, txt))
-        elif kind == 'DIAL':
-            flush_stge()
-            if prev == 'STGE': output.append(('BLANK',''))
-            output.append((kind, txt))
-        elif kind == 'STGE':
-            if prev == 'DIAL' and not stge_buf:
-                output.append(('BLANK',''))
-            stge_buf.append(txt)
-        elif kind == 'BLANK':
-            flush_stge()
-            if prev != 'BLANK': output.append((kind, txt))
-    flush_stge()
+        if kind == 'BLANK':
+            continue
+        output += [('BLANK', '')] * need_blank(prev, kind)
+        output.append((kind, txt))
+        prev = kind
 
-    # 공통 텍스트 정리: 대시→쉼표, 이모지 제거, '끊긴다' 제거
+    EMOJI = r'[\U0001f600-\U0001f9ff\U00002702-\U000027B0\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff✊💢💙💗🥺😡🗡️⚡✨🔥💰]'
+
     def clean_text(t):
-        t = re.sub(r'[\U0001f600-\U0001f9ff\U00002702-\U000027B0\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff✊💢💙💗🥺😡🗡️⚡✨🔥💰]', '', t)
+        """대시→쉼표, 이모지 제거, '끊긴다' 제거"""
+        t = re.sub(EMOJI, '', t)
         t = t.replace(' — ', ', ').replace('—', ', ')
-        t = re.sub(r',?\s*끊긴다\.?', '', t)  # "끊긴다" "끊긴다." ", 끊긴다"
-        t = re.sub(r',\s*,', ',', t)  # 이중 쉼표 제거
-        t = re.sub(r',\s*$', '', t)  # 끝에 남은 쉼표 제거
+        t = re.sub(r',?\s*끊긴다\.?', '', t)
+        t = re.sub(r',\s*,', ',', t)
+        t = re.sub(r',\s*$', '', t)
         return t.strip()
 
-    # 3단계: DOCX 생성
+    # 3단계: DOCX 생성 — 모양은 스타일이 정한다
     for kind, txt in output:
         if kind == 'BLANK':
             doc.add_paragraph(); continue
         if kind == 'EP':
-            from docx.oxml import OxmlElement
-            from docx.oxml.ns import qn
-            # EP 헤더 정리: 이모지 제거, 대시 제거
-            clean = re.sub(r'[\U0001f600-\U0001f9ff\U00002702-\U000027B0\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff✊💢💙💗🥺😡🗡️⚡✨🔥💰]', '', txt)
-            clean = clean.replace('—', ',').replace(' , ', ', ').strip()
+            clean = re.sub(EMOJI, '', txt).replace('—', ',').replace(' , ', ', ').strip()
             clean = re.sub(r'\s+', ' ', clean)
             parts = clean.split("|")
-            ep_text = parts[0].strip() + " | " + parts[1].strip() if len(parts) >= 2 else clean
-
-            # 1) 상단 구분선
-            bp1 = doc.add_paragraph()
-            bp1.paragraph_format.space_after = Pt(0)
-            pPr1 = bp1._p.get_or_add_pPr()
-            pBdr1 = OxmlElement('w:pBdr')
-            bot1 = OxmlElement('w:bottom')
-            bot1.set(qn('w:val'), 'single'); bot1.set(qn('w:sz'), '4')
-            bot1.set(qn('w:space'), '1'); bot1.set(qn('w:color'), '595959')
-            pBdr1.append(bot1); pPr1.append(pBdr1)
-
-            # 2) EP 텍스트
-            ep_p = doc.add_paragraph()
-            ep_p.paragraph_format.space_before = Pt(6)
-            ep_p.paragraph_format.space_after = Pt(6)
-            r = ep_p.add_run(ep_text); r.font.size = Pt(12); r.font.bold = True; r.font.color.rgb = RGBColor(0x59,0x59,0x59)
-
-            # 3) 하단 구분선
-            bp2 = doc.add_paragraph()
-            bp2.paragraph_format.space_before = Pt(0)
-            bp2.paragraph_format.space_after = Pt(6)
-            pPr2 = bp2._p.get_or_add_pPr()
-            pBdr2 = OxmlElement('w:pBdr')
-            top2 = OxmlElement('w:top')
-            top2.set(qn('w:val'), 'single'); top2.set(qn('w:sz'), '4')
-            top2.set(qn('w:space'), '1'); top2.set(qn('w:color'), '595959')
-            pBdr2.append(top2); pPr2.append(pBdr2)
-            continue
-        p = doc.add_paragraph()
-        if kind == 'BLOCK':
-            p.paragraph_format.space_before = Pt(24)
-            r = p.add_run(txt); r.font.size = Pt(11); r.font.bold = True; r.font.color.rgb = RGBColor(0x19,0x19,0x70)
+            add(parts[0].strip() + " | " + parts[1].strip() if len(parts) >= 2 else clean, "에피소드헤더")
+        elif kind == 'BLOCK':
+            add(txt, "블록표시")
         elif kind == 'SUBTITLE':
-            p.paragraph_format.space_after = Pt(4)
-            r = p.add_run(txt); r.font.size = Pt(10); r.font.bold = True; r.font.color.rgb = RGBColor(0xFF,0x6B,0x35)
+            add(txt, "자막")
         elif kind == 'SCENE':
-            p.paragraph_format.space_before = Pt(10); p.paragraph_format.space_after = Pt(4)
-            p.paragraph_format.line_spacing = 2.0
-            r = p.add_run(clean_text(txt)); r.font.size = Pt(10); r.font.bold = True
+            add(clean_text(txt), "씬헤더")
         elif kind == 'DIAL':
-            p.paragraph_format.space_after = Pt(2); p.paragraph_format.line_spacing = 2.0
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(2.5))
             cleaned = clean_text(txt)
             m = re.match(r'^(\S+)\s*\t+\s*(.+)$', cleaned) or re.match(r'^(\S+)\s{2,}(.+)$', cleaned)
+            p = doc.add_paragraph(style="캐릭터(대사)")
             if m:
-                nr = p.add_run(m.group(1)+"\t"); nr.font.size = Pt(10); nr.font.bold = True
-                dr = p.add_run(m.group(2)); dr.font.size = Pt(10)
+                p.add_run(m.group(1), style="캐릭터이름")
+                p.add_run("\t" + m.group(2))
             else:
-                r = p.add_run(cleaned); r.font.size = Pt(10)
+                p.add_run(cleaned)
         elif kind == 'STGE':
-            p.paragraph_format.space_after = Pt(0)
-            r = p.add_run(clean_text(txt)); r.font.size = Pt(10)
+            add(clean_text(txt), "지문")
 
     doc.add_paragraph(); doc.add_paragraph()
-    ft = doc.add_paragraph(); ft.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = ft.add_run(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v3.1 · {datetime.now().strftime('%Y-%m-%d')}")
-    r.font.size = Pt(7); r.font.color.rgb = RGBColor(0xAA,0xAA,0xAA)
+    add(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v3.2 · {datetime.now().strftime('%Y-%m-%d')}", "끝문구")
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -774,7 +792,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.1 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.2 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 작업 저장 · 불러오기 ─────────────────────────
@@ -1567,7 +1585,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v3.1 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v3.2 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1834,7 +1852,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v3.1\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v3.2\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1850,7 +1868,9 @@ with tab_create:
 
         col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
         with col_dl1:
-            docx_bytes = build_docx(full, title=title,
+            # DOCX는 대본만 담는다 (머리 정보·블록 표시 없이). TXT는 그대로 둔다.
+            docx_text = "\n\n".join(st.session_state.blocks[bn] for bn in sorted(st.session_state.blocks.keys()))
+            docx_bytes = build_docx(docx_text, title=title,
                 subtitle=st.session_state.concept.get('logline','') if st.session_state.concept else '')
             st.download_button("📄 전체 대본 DOCX", docx_bytes,
                 file_name=f"{safe_name(title)}_전체대본.docx",
@@ -2073,7 +2093,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v3.1 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v3.2 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -2149,6 +2169,6 @@ with tab_convert:
 autosave()
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.1 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.2 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )
