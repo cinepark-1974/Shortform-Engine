@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "3.3.0"
+ENGINE_VERSION = "3.4.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -2760,6 +2760,70 @@ def check_arc_chunk(blocks, prior_phases=None, prior_episodes=None):
     return issues
 
 
+def build_arc_repeat_review_prompt(prior_ledger, chunk_blocks, start_ep, end_ep, producer_note=""):
+    """v3.4 반복 심사. 낱말이 달라 코드로 못 잡는 '같은 수법 되풀이'를 설계 모델이 찾는다.
+    prior_ledger: 앞 청크까지의 'EP n: 사건 / 끝: … / 자막: …' 줄들. chunk_blocks: 이번 청크 설계안."""
+    lines = []
+    for b in chunk_blocks or []:
+        for e in b.get("episodes", []):
+            lines.append(f"EP{e.get('ep','?')}: {e.get('summary','')} / 끝: {e.get('cliffhanger','')} / 자막: {e.get('first_subtitle','')}")
+    pn = f"\n[작가가 정한 매 화의 틀 — 이것을 따르는 것은 반복으로 치지 않는다]\n{producer_note.strip()}\n" if producer_note.strip() else ""
+    return f"""[TASK] 숏폼 드라마 아크 반복 심사
+
+아래는 한 작품의 화별 사건표다. [앞에서 일어난 일]은 이미 확정됐다. [이번에 설계한 화](EP{start_ep}~{end_ep})에서
+앞의 사건과 같은 수법을 되풀이한 화를 찾는다. 시청자가 "또 이거야"라고 느낄 화를 찾는 일이다.
+{pn}
+[반복으로 본다]
+1. 같은 사람이 같은 방식으로 상대를 막거나 이긴다. 물건이 달라도 방식이 같으면 같은 수법이다.
+   예: 방 자물쇠 → 금고 비밀번호 → 대문 비밀번호 (모두 '잠그기') / 서류 소각 → 통장 소각 (모두 '태우기')
+   / 폰 빼앗기 → 다른 사람 폰 빼앗기 / 필체 대조 → 또 필체 대조 / 사본 꺼내기 → 또 사본 꺼내기
+   작품 전체에서 같은 수법이 세 번째로 나오는 화를 잡는다. 두 번째라도 바로 앞 10화 안이면 잡는다.
+2. 이미 찾아내거나 폭로한 것을 다시 찾아내거나 폭로한다. (예: EP16에 출금 패턴 발견 → EP49에 같은 패턴을 처음 발견)
+3. '처음으로'라고 적었는데 앞에 이미 같은 일이 있다.
+4. 화 끝 그림이 같은 반응 컷(눈빛 흔들림, 침묵, 얼굴 굳음)인데 10화 안에 이미 있었다.
+
+[반복이 아니다]
+- 앞 사건의 결과로 생긴 새 사건. (폭로 → 그 탓에 쫓겨남)
+- 같은 물건이라도 판이 한 단계 커진 사건. (혼자 한 일 → 공범이 있었다)
+- 작가가 정한 매 화의 틀(같은 장소, 같은 인물 구성).
+
+[앞에서 일어난 일]
+{prior_ledger.strip() or '(없음 — 이번 청크가 첫 청크다. 청크 안에서만 비교한다)'}
+
+[이번에 설계한 화]
+{chr(10).join(lines)}
+
+[출력 — JSON만. 설명 금지. 반복이 없으면 "repeats": []]
+{{"repeats": [{{"ep": 49, "same_as": [16], "how": "같은 출금 패턴을 다시 처음 발견한다", "fix": "EP16 패턴의 돈이 간 곳을 찾는 사건으로"}}]}}
+- ep는 반드시 EP{start_ep}~{end_ep} 안의 번호. same_as는 앞의 화 번호들.
+- how와 fix는 각각 30자 이내. fix는 그 화에 새로 넣을 사건을 물건과 행동으로 적는다.
+- 확실한 것만 적는다. 최대 10개."""
+
+
+def repeat_review_issues(data, start_ep, end_ep):
+    """반복 심사 응답(JSON dict)을 아크 다시 설계용 문장으로 바꾼다."""
+    out = []
+    for r in (data or {}).get("repeats", []) or []:
+        if not isinstance(r, dict):
+            continue
+        try:
+            ep = int(re.sub(r"\D", "", str(r.get("ep", ""))) or 0)
+        except ValueError:
+            continue
+        if not (start_ep <= ep <= end_ep):
+            continue
+        same = r.get("same_as") or []
+        same = same if isinstance(same, list) else [same]
+        same_txt = ", ".join(f"EP{re.sub(r'[^0-9]', '', str(x))}" for x in same if re.sub(r'[^0-9]', '', str(x)))
+        how = str(r.get("how", "")).strip()
+        fix = str(r.get("fix", "")).strip()
+        msg = f"EP{ep}: {same_txt + '과 ' if same_txt else ''}같은 수법이다 — {how or '앞 사건의 되풀이'}."
+        if fix:
+            msg += f" 바꿀 방향: {fix}"
+        out.append(msg)
+    return out[:10]
+
+
 def build_arc_fix_note(issues):
     """아크 청크를 다시 설계시킬 때 붙이는 안내."""
     lines = "\n".join(f"- {x}" for x in issues[:20])
@@ -2883,6 +2947,14 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 - 자막과 클리프행어는 [이미 일어난 일]의 어느 화와도 같은 말을 쓰지 않는다. 같은 말이 나오면 같은 사건을 되풀이한 것이다.
   나쁨: EP38 "[사이다] [악역] 무릎" / 끝 "[악역], 처음으로 무릎 꿇음" → EP93 같은 자막, 같은 끝
   좋음: EP38 "[사이다] [악역] 무릎" → EP93 "[사이다] 문서에 [악역] 이름 지움" (굴복의 다음 단계)
+- 같은 사람이 같은 방식으로 상대를 막거나 이기는 것은 작품 전체에서 두 번까지다. 물건이 달라도 방식이 같으면 같은 수법이다.
+  방식의 예 — 악역: 빼앗기 / 잠그기·비밀번호 바꾸기 / 태우기·지우기 / 모함 / 바꿔치기 / 매수 / 엿보기·도청 / 무릎·사과 강요.
+  주인공: 숨겨 둔 사본 꺼내기 / 필체·서류 대조 / 기록 열람으로 찾아내기 / 덫 놓기 / 제3자에게 확인받기.
+  나쁨: EP14 "[악역], [주인공] 방 자물쇠 바꿈" → EP31 "[악역], 금고 비번 바꿈" → EP46 "[악역], 대문 비번 바꿈" (물건만 바뀐 잠그기 세 번)
+  좋음: EP14 "[악역], [주인공] 방 자물쇠 바꿈" → EP31 "[악역], [강자] 앞에서 [주인공] 도둑 몰기" → EP46 "[악역], [주인공] 친정에 거짓 전화"
+  나쁨: EP28 "필체 대조로 위조 잡음" → EP70 "필체 대조표 제출" → EP88 "필체 대조로 메모 증명" (주인공의 수가 하나뿐)
+- 이미 찾아낸 것을 다시 찾아내지 않는다. "처음으로"는 그 일이 작품에서 처음일 때만 쓴다.
+- 화 끝 그림이 같은 반응 컷(눈빛 흔들림, 침묵)이면 10화 안에 다시 쓰지 않는다.
 - 같은 물건이 사건의 열쇠(증거, 모욕 도구, 빼앗는 대상)가 되는 것은 작품 전체에서 세 화까지다. [이미 일어난 일]에 세 번 나온 물건은 배경으로만 둔다.
 - 10화 묶음마다 싸움의 물건이 다르다. 앞 묶음이 약봉투였으면 다음 묶음은 통장, 그다음은 유언장처럼 손에 잡히는 물건이 바뀐다. 한 물건으로 20화를 넘기지 않는다.
 - summary는 사건이다. 규칙의 이름을 적지 않는다. "응징", "되갚음", "역공", "반격", "과금 보상", "함정", "위기"만으로 된 summary는 쓰지 않는다. 무엇으로 누구의 무엇을 했는지 물건과 행동을 적는다.

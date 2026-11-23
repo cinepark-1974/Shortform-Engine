@@ -237,6 +237,16 @@ def static_check():
     if "최종화 — EP" in P.build_block_prompt(fin_c, dict(fin_b, ep_range="EP 91~95",
             episodes=[{"ep": n, "summary": "x"} for n in range(91, 96)]), 19):
         fails.append("블록 프롬프트(v3.3): 최종화가 아닌 블록에 최종화 기준이 들어감")
+    # v3.4: 반복 심사 프롬프트와 응답 해석
+    rp = P.build_arc_repeat_review_prompt("EP14: 미령, 수진 방 자물쇠 교체", blk, 91, 95, "매 화 식탁")
+    if "EP91~95" not in rp or "EP14: 미령" not in rp or "매 화 식탁" not in rp:
+        fails.append("반복 심사(v3.4): 프롬프트에 장부·범위·작가 틀이 빠짐")
+    ri = P.repeat_review_issues({"repeats": [{"ep": 93, "same_as": [38], "how": "무릎 다시", "fix": "이름 지우기"},
+                                             {"ep": "EP12", "same_as": [3], "how": "범위 밖"}, "깨진 줄"]}, 91, 95)
+    if len(ri) != 1 or "EP93: EP38과 같은 수법" not in ri[0] or "이름 지우기" not in ri[0]:
+        fails.append(f"반복 심사(v3.4): 응답 해석 오류 {ri}")
+    if P.repeat_review_issues(None, 1, 25) != []:
+        fails.append("반복 심사(v3.4): 빈 응답 처리 오류")
     print(f"조합 {n}개 × 프롬프트 9종 점검 + 화수별 아크 + 자동 점검기")
     if fails:
         print(f"실패 {len(fails)}건")
