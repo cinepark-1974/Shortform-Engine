@@ -210,6 +210,33 @@ def static_check():
     r = P.check_script(good, {"protagonist": {"name": "윤서연"}, "villain": {"name": "강해수"}}, ai_mode=True)
     if not r["ok"]:
         fails.append(f"자동 점검기: 합격 예시를 불합격 처리함 {r['issues']}")
+    # v3.3: 분량 하한, 주인공 무대사, 최종화, 아크 자막·클리프행어 중복
+    cc = {"protagonist": {"name": "윤서연"}, "villain": {"name": "강해수"}, "total_eps": 5}
+    thin = ("EP 5 | 🕊️ 해방 | D9\n[자막] \"[사이다] 끝\"\n\nS#1. 본가 — 식탁. 낮.\n"
+            "옥분이 서류를 놓는다. 해수가 앉던 의자는 비어 있다.\n\n"
+            + "\n".join(["옥분  이 집은 네 거다.", "서연  네.", "옥분  밥 먹자."] * 3)
+            + "\n\n서연이 주방으로 걸어간다.")
+    joined = " ".join(P.check_script(thin, cc)["issues"])
+    for need in ("최종화 분량 하한 700자", "주적(강해수)의 대사가 없습니다"):
+        if need not in joined:
+            fails.append(f"자동 점검기(v3.3): 얇은 최종화에서 '{need}'를 못 잡음")
+    mute = thin.replace("서연  네.", "옥분  그래.")
+    mj = " ".join(P.check_script(mute, cc)["issues"])
+    if "주인공의 대사가 한 줄도 없습니다" not in mj or "지문으로만 끝납니다" not in mj:
+        fails.append("자동 점검기(v3.3): 주인공 대사 0줄 / 지문으로만 끝나는 최종화를 못 잡음")
+    prior = [{"ep": 38, "first_subtitle": "[사이다] 미령 무릎", "cliffhanger": "미령, 처음으로 무릎 꿇음"}]
+    blk = [{"block_no": 19, "phase": "몰락", "episodes": [
+        {"ep": 93, "summary": "시어머니가 위조 선언", "first_subtitle": "[사이다] 미령 무릎", "cliffhanger": "미령, 처음으로 무릎 꿇음"}]}]
+    ai = " ".join(P.check_arc_chunk(blk, [], prior))
+    if "EP93의 자막이 EP38과 같다" not in ai or "EP93의 클리프행어가 EP38과 같다" not in ai:
+        fails.append("아크 점검(v3.3): 앞 청크와 같은 자막·클리프행어를 못 잡음")
+    fin_c = dict(DUMMY_CONCEPT, formula="복수극", total_eps=100)
+    fin_b = {"ep_range": "EP 96~100", "episodes": [{"ep": n, "summary": "x"} for n in range(96, 101)]}
+    if "최종화 — EP 100" not in P.build_block_prompt(fin_c, fin_b, 20):
+        fails.append("블록 프롬프트(v3.3): 최종화 블록에 최종화 기준이 없음")
+    if "최종화 — EP" in P.build_block_prompt(fin_c, dict(fin_b, ep_range="EP 91~95",
+            episodes=[{"ep": n, "summary": "x"} for n in range(91, 96)]), 19):
+        fails.append("블록 프롬프트(v3.3): 최종화가 아닌 블록에 최종화 기준이 들어감")
     print(f"조합 {n}개 × 프롬프트 9종 점검 + 화수별 아크 + 자동 점검기")
     if fails:
         print(f"실패 {len(fails)}건")

@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "3.2.0"
+ENGINE_VERSION = "3.3.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -2654,6 +2654,45 @@ def secret_plan_block(concept, start_ep, end_ep, unit="청크"):
     return "\n".join(out) + "\n"
 
 
+# v3.3 화별 분량 하한 (본문 글자 수: EP 줄·[자막] 줄·S# 줄을 뺀 지문과 대사)
+VOLUME_FLOOR = {"pilot": 700, "paywall": 800, "after_paywall": 700, "finale": 700, "normal": 500}
+VOLUME_LABEL = {"pilot": "파일럿(EP1)", "paywall": "과금 관문", "after_paywall": "과금 관문 뒤",
+                "finale": "최종화", "normal": "일반"}
+
+
+def ep_volume_kind(ep, total_eps=None, paywall_ep=None):
+    """화 번호로 분량 등급을 정한다. 최종화가 가장 앞선다."""
+    if total_eps and int(ep) == int(total_eps):
+        return "finale"
+    if int(ep) == 1:
+        return "pilot"
+    if paywall_ep:
+        pw = int(paywall_ep)
+        if int(ep) in (max(1, pw - 1), pw):
+            return "paywall"
+        if pw < int(ep) <= pw + 4:
+            return "after_paywall"
+    return "normal"
+
+
+FINALE_ARC_RULE = """[마지막 화 설계]
+- 주적은 마지막 화까지 퇴장시키지 않는다. 마지막 화에 주적이 화면에 나와 대가를 받는 얼굴을 보인다.
+  나쁨: EP99 끝 "[악역], 짐 싸서 집 나섬" → EP100 "[악역]의 빈 의자" (가장 보고 싶은 얼굴이 없다)
+  좋음: EP99 끝 "[강자], [악역]에게 짐 싸라" → EP100 "[악역] 앞에서 [주인공]이 열쇠 받음"
+- 마지막 화는 끝 화면이 다르다. 직전 세 화와 같은 장소·같은 시간이면 시간이나 장소 하나를 바꾼다.
+  작가가 장소를 정해 두었으면 그 장소 안에서 시간(낮→밤, 밤→새벽)을 바꾼다.
+- 마지막 화의 cliffhanger 칸에는 끊는 순간 대신 주인공의 마지막 한마디나 마지막 행동을 적는다."""
+
+FINALE_BLOCK_RULE = """
+★★★ 최종화 — EP {last}은 이 작품의 마지막 화다 ★★★
+EP {last} 분량: 700~1000자. 사건 2~3개. 1~3씬. 이 블록에서 가장 짧은 화가 되면 안 된다.
+- 주적이 화면에 나와 직접 말한다. 빈 의자나 남의 말로만 처리하지 않는다. 대가를 받는 얼굴을 1~2초 잡는다.
+- 주인공이 대사를 한다. 지문(표정, 뒷모습)만으로 끝내지 않는다. EP1의 첫 장면과 맞물리는 한 줄이면 가장 좋다.
+- 직전 화와 같은 장소·같은 시간으로 시작하지 않는다. 작가가 장소를 정해 두었으면 그 장소 안에서 시간을 바꾼다.
+- 다음 화를 여는 떡밥을 새로 만들지 않는다. 시즌 질문에 답한다.
+"""
+
+
 # 아크 summary에 나오면 안 되는 말
 ARC_REPEAT_WORDS = re.compile(
     r"(재모함|재조작|재시도|재개|재확보|재설치|다시 |또다시|또 한 번|[두세네] ?번째|다섯 ?번째|여섯 ?번째|\d ?번째|\d차)")
@@ -2661,14 +2700,30 @@ ARC_RULE_WORDS = re.compile(
     r"(응징|되갚음|역공|역습|반격 개시|과금 보상|함정 설치|위기 모면|고립시)")
 
 
-def check_arc_chunk(blocks, prior_phases=None):
+def _arc_key(text, strip_badge=False):
+    """자막·클리프행어를 비교하려고 배지와 기호, 띄어쓰기를 뗀다."""
+    t = str(text or "")
+    if strip_badge:
+        t = re.sub(r"^\s*\[[^\]]*\]\s*", "", t)
+    return _norm(t)
+
+
+def check_arc_chunk(blocks, prior_phases=None, prior_episodes=None):
     """아크 한 청크를 글자만 보고 점검한다. 문제 목록(문장)을 돌려준다.
 
     잡는 것: 같은 수법 되풀이를 알리는 말(재-, n번째, n차), 사건 대신 규칙 용어만 쓴 summary,
-    겹치는 블록 국면 이름.
+    겹치는 블록 국면 이름, 앞에 쓴 화와 글자까지 같은 자막·클리프행어(v3.3).
     """
     issues = []
     seen = [p.replace(" ", "") for p in (prior_phases or [])]
+    seen_sub, seen_cliff = {}, {}
+    for e in prior_episodes or []:
+        k = _arc_key(e.get("first_subtitle"), True)
+        if len(k) >= 2:
+            seen_sub.setdefault(k, e.get("ep"))
+        k = _arc_key(e.get("cliffhanger"))
+        if len(k) >= 2:
+            seen_cliff.setdefault(k, e.get("ep"))
     for b in blocks or []:
         ph = str(b.get("phase", "")).strip()
         key = ph.replace(" ", "")
@@ -2680,6 +2735,20 @@ def check_arc_chunk(blocks, prior_phases=None):
         if m:
             issues.append(f"블록{b.get('block_no','?')}의 국면 이름 '{ph}': '{m.group(1)}'은 규칙의 이름이다. 그 블록에서 벌어지는 일로 이름을 붙인다.")
         for e in b.get("episodes", []):
+            k = _arc_key(e.get("first_subtitle"), True)
+            if len(k) >= 2:
+                if k in seen_sub:
+                    issues.append(f"EP{e.get('ep','?')}의 자막이 EP{seen_sub[k]}과 같다('{e.get('first_subtitle','')}'). "
+                                  f"같은 자막은 같은 사건이라는 뜻이다. 사건과 자막을 함께 바꾼다.")
+                else:
+                    seen_sub[k] = e.get("ep")
+            k = _arc_key(e.get("cliffhanger"))
+            if len(k) >= 2:
+                if k in seen_cliff:
+                    issues.append(f"EP{e.get('ep','?')}의 클리프행어가 EP{seen_cliff[k]}과 같다('{e.get('cliffhanger','')}'). "
+                                  f"시청자에게는 이미 본 끝이다. '처음으로'가 붙은 말이면 앞뒤도 맞지 않는다. 다른 끊는 순간으로 바꾼다.")
+                else:
+                    seen_cliff[k] = e.get("ep")
             sm = str(e.get("summary", ""))
             m = ARC_REPEAT_WORDS.search(sm)
             if m:
@@ -2731,7 +2800,8 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
     is_last_chunk = end_ep >= int(total_eps)
     arc_hint = scale_arc_hint(formula.get('arc_hint', ''), total_eps, _pw)
     phase_text = stage_text(total_eps, _pw, start_ep, end_ep)
-    last_note = f"\n★ EP {int(total_eps)}이 이 작품의 마지막 화다. 이 청크 안에서 결말을 낸다.\n" if is_last_chunk else ""
+    last_note = (f"\n★ EP {int(total_eps)}이 이 작품의 마지막 화다. 이 청크 안에서 결말을 낸다.\n"
+                 f"{FINALE_ARC_RULE}\n") if is_last_chunk else ""
 
     prev_block = ""
     if prev_summary:
@@ -2810,6 +2880,10 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 - 한 번 쓴 수법은 다시 쓰지 않는다. summary에 "재-", "다시", "또", "두 번째", "2차" 같은 말이 필요하면 같은 사건을 되풀이한 것이다. 그 화를 앞에 없던 사건으로 바꾼다.
   나쁨: EP45 "[악역], [주인공] 도둑 모함" → EP63 "[악역], 도둑 재모함" → EP83 "[악역], 도둑 재모함"
   좋음: EP45 "[악역], [주인공] 도둑 모함" → EP63 "[악역], [강자] 인감 훔침" → EP83 "[악역], 간병인 매수"
+- 자막과 클리프행어는 [이미 일어난 일]의 어느 화와도 같은 말을 쓰지 않는다. 같은 말이 나오면 같은 사건을 되풀이한 것이다.
+  나쁨: EP38 "[사이다] [악역] 무릎" / 끝 "[악역], 처음으로 무릎 꿇음" → EP93 같은 자막, 같은 끝
+  좋음: EP38 "[사이다] [악역] 무릎" → EP93 "[사이다] 문서에 [악역] 이름 지움" (굴복의 다음 단계)
+- 같은 물건이 사건의 열쇠(증거, 모욕 도구, 빼앗는 대상)가 되는 것은 작품 전체에서 세 화까지다. [이미 일어난 일]에 세 번 나온 물건은 배경으로만 둔다.
 - 10화 묶음마다 싸움의 물건이 다르다. 앞 묶음이 약봉투였으면 다음 묶음은 통장, 그다음은 유언장처럼 손에 잡히는 물건이 바뀐다. 한 물건으로 20화를 넘기지 않는다.
 - summary는 사건이다. 규칙의 이름을 적지 않는다. "응징", "되갚음", "역공", "반격", "과금 보상", "함정", "위기"만으로 된 summary는 쓰지 않는다. 무엇으로 누구의 무엇을 했는지 물건과 행동을 적는다.
   나쁨: "[주인공] 세 번째 작은 응징" / "[악역] 되갚음, [주인공] 고립" / "과금 보상"
@@ -2992,8 +3066,14 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 과금 관문 앞의 화: 일반 분량 500~800자. 떡밥을 조이기만 하고 터뜨리지 않는다.
 과금 관문 뒤의 화(EP⟦PW+1⟧~⟦PW+4⟧): 과금 후 보상감. 분량 700~1000자.
 """
+    _last = int(concept.get("total_eps") or 0)
+    is_finale_block = bool(_last) and any(int(e.get("ep", 0) or 0) == _last for e in episodes)
     if not volume_note:
         volume_note = "\n[일반 분량] 1화 = 500~800자. 사건 1~2개. 1~2씬.\n"
+    volume_note += ("\n[분량 하한] 위 분량의 아래 끝은 하한이다. 지문과 대사를 합친 본문이 하한보다 짧은 화는 자동 점검에서 다시 쓴다. "
+                    "뒤 블록으로 갈수록 화가 짧아지지 않게 한다. 대사를 늘릴 때는 같은 말을 되풀이하지 않고 사건을 하나 더 넣는다.\n")
+    if is_finale_block:
+        volume_note += FINALE_BLOCK_RULE.format(last=_last)
 
     pn_block = f"\n[프로듀서 노트 — 반드시 반영]\n{producer_note}\n" if producer_note.strip() else ""
 
@@ -3632,10 +3712,25 @@ def check_premise_in_ep1(parsed, premise):
     return []
 
 
-def check_script(text, concept=None, ai_mode=False, fixed_text="", premise=""):
+def _villain_names(concept):
+    """주적 이름(성+이름, 이름)."""
+    v = (concept or {}).get("villain") or {}
+    name = (v.get("name") if isinstance(v, dict) else "") or ""
+    m = re.match(r"^([가-힣A-Za-z]+)", name.strip())
+    if not m:
+        return []
+    out = {m.group(1)}
+    if re.fullmatch(r"[가-힣]{3,4}", m.group(1)):
+        out.add(m.group(1)[1:])
+    return sorted(out, key=len, reverse=True)
+
+
+def check_script(text, concept=None, ai_mode=False, fixed_text="", premise="", paywall_ep=None):
     """집필된 블록을 점검한다. 돌려주는 값:
     {"ok": bool, "issues": [사람이 읽는 문장], "stats": {...}}"""
     parsed = parse_script(text, concept)
+    total_eps = int((concept or {}).get("total_eps") or 0) or None
+    villain = _villain_names(concept)
     eps = parsed["episodes"]
     lead = parsed["lead_names"]
     issues, stats = [], {"episodes": len(eps), "scenes": 0, "solo_scenes": 0, "per_ep": []}
@@ -3651,8 +3746,30 @@ def check_script(text, concept=None, ai_mode=False, fixed_text="", premise=""):
         dialog = [ln for ln in lines if ln["speaker"]]
         inserts = [ln for ln in lines if ln["insert"]]
         ratio = (len(inserts) / len(lines)) if lines else 0
+        body = sum(len(ln["text"]) for ln in lines)
+        kind = ep_volume_kind(ep["ep"], total_eps, paywall_ep)
+        floor = VOLUME_FLOOR[kind]
         stats["per_ep"].append({"ep": ep["ep"], "lines": len(lines), "dialogue": len(dialog),
-                                "inserts": len(inserts), "scenes": len(ep["scenes"])})
+                                "inserts": len(inserts), "scenes": len(ep["scenes"]),
+                                "chars": body, "floor": floor})
+        if lines and body < floor:
+            issues.append(f"EP {ep['ep']}: 본문이 {body}자로 {VOLUME_LABEL[kind]} 분량 하한 {floor}자보다 짧습니다. "
+                          f"같은 말을 늘리지 말고 사건을 하나 더 넣어 {floor}자 이상으로 씁니다.")
+        if lead and dialog and not any(_same_person(ln["speaker"], l) for ln in dialog for l in lead):
+            issues.append(f"EP {ep['ep']}: 주인공의 대사가 한 줄도 없습니다. 이 화의 한 수를 주인공이 직접 말하게 합니다.")
+        if kind == "finale":
+            prev = next((e for e in eps if e["ep"] == ep["ep"] - 1), None)
+            h_now = _norm(ep["scenes"][0]["header"]) if ep["scenes"] else ""
+            h_prev = _norm(prev["scenes"][-1]["header"]) if prev and prev["scenes"] else ""
+            if h_now and h_now == h_prev:
+                issues.append(f"EP {ep['ep']}: 최종화가 직전 화와 같은 장소·같은 시간({ep['scenes'][0]['header']})으로 시작합니다. "
+                              f"장소나 시간 하나를 바꿉니다. 작가가 장소를 정해 두었으면 시간을 바꿉니다.")
+            if villain and not any(_same_person(ln["speaker"], v) for ln in dialog for v in villain):
+                issues.append(f"EP {ep['ep']}: 최종화에 주적({villain[0]})의 대사가 없습니다. 빈 의자나 남의 말로 처리하지 않고, "
+                              f"주적이 나와 직접 말하고 대가를 받는 얼굴을 보이게 씁니다.")
+            if lines and not lines[-1]["speaker"] and not any(
+                    _same_person(ln["speaker"], l) for ln in lines[-6:] if ln["speaker"] for l in lead):
+                issues.append(f"EP {ep['ep']}: 최종화가 주인공의 말 없이 지문으로만 끝납니다. 끝 가까이에 주인공의 마지막 대사를 둡니다.")
         if not dialog:
             issues.append(f"EP {ep['ep']}: 대사가 0줄입니다. 대사 8~12개로 다시 씁니다.")
         elif len(dialog) < 8:

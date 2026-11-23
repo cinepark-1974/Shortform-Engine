@@ -22,7 +22,7 @@ import hashlib
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "3.2.0"
+EXPECTED_ENGINE_VERSION = "3.3.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -624,7 +624,14 @@ def arc_ledger(blocks, before_ep=None):
                 continue
             ev = str(e.get("summary", "")).strip()
             if ev:
-                lines.append(f"EP{n}: {ev}")
+                extra = ""
+                cl = str(e.get("cliffhanger", "")).strip()
+                sb = str(e.get("first_subtitle", "")).strip()
+                if cl:
+                    extra += f" / 끝: {cl}"
+                if sb:
+                    extra += f" / 자막: {sb}"
+                lines.append(f"EP{n}: {ev}{extra}")
     return "\n".join(lines)
 
 
@@ -674,7 +681,8 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
                     break
                 progress_placeholder.warning(f"청크 {chunk} 파싱 실패 — 자동 재시도 중...")
                 continue
-            issues = P.check_arc_chunk(cand["blocks"], prior_phases)
+            prior_eps = [e for b in all_blocks for e in b.get("episodes", [])]
+            issues = P.check_arc_chunk(cand["blocks"], prior_phases, prior_eps)
             if best is None or len(issues) < len(best_issues):
                 best, best_issues = cand, issues
             if not issues or fix_note:
@@ -1040,14 +1048,14 @@ def write_block_checked(make_prompt, concept, bn):
     rt = stream_block(make_prompt(""), f"블록{bn} 집필 중...", f"s_{bn}_0")
     fixed_text = (st.session_state.get("author_fixed") or "") + "\n" + (st.session_state.get("producer_note") or "")
     _prem = st.session_state.get("premise") or ""
-    check = P.check_script(rt, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem)
+    check = P.check_script(rt, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem, paywall_ep=paywall_key)
     tries = 0
     while auto_check_key and not check["ok"] and tries < 2:
         tries += 1
         st.warning(f"자동 점검 불합격 — 다시 씁니다 ({tries}/2)\n\n" + "\n".join(f"- {i}" for i in check["issues"][:6]))
         rt2 = stream_block(make_prompt(P.build_rewrite_note(check["issues"], rt)),
                            f"블록{bn} 다시 쓰는 중... ({tries}/2)", f"s_{bn}_{tries}")
-        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem)
+        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem, paywall_ep=paywall_key)
         if len(check2["issues"]) <= len(check["issues"]):   # 더 나은 쪽을 남긴다
             rt, check = rt2, check2
     check["rewrites"] = tries
@@ -1061,7 +1069,8 @@ def show_block_check(bn):
         return
     stt = ck.get("stats", {})
     line = (f"씬 {stt.get('scenes', 0)}개 중 혼자 씬 {stt.get('solo_scenes', 0)}개 · "
-            + " · ".join(f"EP{e['ep']} 대사 {e['dialogue']}줄" for e in stt.get("per_ep", [])))
+            + " · ".join(f"EP{e['ep']} 대사 {e['dialogue']}줄"
+                         + (f" {e['chars']}자" if "chars" in e else "") for e in stt.get("per_ep", [])))
     if ck.get("ok"):
         st.success(f"자동 점검 통과 (다시 쓴 횟수 {ck.get('rewrites', 0)}) — {line}")
     else:
