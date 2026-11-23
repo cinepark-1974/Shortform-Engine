@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "3.4.0"
+ENGINE_VERSION = "3.5.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -2716,8 +2716,11 @@ def check_arc_chunk(blocks, prior_phases=None, prior_episodes=None):
     """
     issues = []
     seen = [p.replace(" ", "") for p in (prior_phases or [])]
-    seen_sub, seen_cliff = {}, {}
+    seen_sub, seen_cliff, moves = {}, {}, {}
     for e in prior_episodes or []:
+        mv = _arc_key(e.get("move"))
+        if len(mv) >= 3:
+            moves.setdefault(mv, []).append(e.get("ep"))
         k = _arc_key(e.get("first_subtitle"), True)
         if len(k) >= 2:
             seen_sub.setdefault(k, e.get("ep"))
@@ -2735,6 +2738,13 @@ def check_arc_chunk(blocks, prior_phases=None, prior_episodes=None):
         if m:
             issues.append(f"블록{b.get('block_no','?')}의 국면 이름 '{ph}': '{m.group(1)}'은 규칙의 이름이다. 그 블록에서 벌어지는 일로 이름을 붙인다.")
         for e in b.get("episodes", []):
+            mv = _arc_key(e.get("move"))
+            if len(mv) >= 3:
+                moves.setdefault(mv, []).append(e.get("ep"))
+                if len(moves[mv]) > MOVE_LIMIT:
+                    issues.append(f"EP{e.get('ep','?')}의 수법 '{e.get('move','')}'이 "
+                                  f"{', '.join('EP' + str(x) for x in moves[mv][:-1])}에 이미 있다. "
+                                  f"같은 사람의 같은 수법은 작품 전체에서 {MOVE_LIMIT}번까지다. 다른 방식으로 바꾼다.")
             k = _arc_key(e.get("first_subtitle"), True)
             if len(k) >= 2:
                 if k in seen_sub:
@@ -2822,6 +2832,18 @@ def repeat_review_issues(data, start_ep, end_ep):
             msg += f" 바꿀 방향: {fix}"
         out.append(msg)
     return out[:10]
+
+
+def move_tally(episodes):
+    """아크에서 이미 쓴 수법을 '수법 ×횟수 (화)' 줄로. 다음 청크에 넘긴다."""
+    tally = {}
+    for e in episodes or []:
+        mv = str(e.get("move", "")).strip()
+        if len(_arc_key(mv)) >= 3:
+            tally.setdefault(mv, []).append(e.get("ep"))
+    rows = sorted(tally.items(), key=lambda kv: -len(kv[1]))
+    return "\n".join(f"- {mv} ×{len(eps)} (EP{', EP'.join(str(x) for x in eps)})"
+                     + (" — 더 쓰지 않는다" if len(eps) >= MOVE_LIMIT else "") for mv, eps in rows)
 
 
 def build_arc_fix_note(issues):
@@ -2981,6 +3003,7 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
           "emotion_mode": "감정모드명",
           "cliffhanger_type": "Slap|Reveal|Reversal|Arrival|Choice|Threat|Tears",
           "cliffhanger": "끊기는 순간 15자 이내",
+          "move": "누가·방식 10자 이내 (예: 미령·잠그기)",
           "first_subtitle": "{sub_info['arc_hint']}",
           "paywall": false
         }}
@@ -2991,6 +3014,7 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 
 ★★★ 토큰 절약 — 위반 시 JSON 잘림으로 실패한다 ★★★
 - summary: 반드시 15자 이내. 나쁨: "모두가 보는 앞에서 망신당하고 쫓겨남" → 좋음: "공개 망신 후 쫓겨남"
+- move: 그 화에서 상대를 막거나 이긴 사람과 방식. "이름·방식" 꼴로 10자 이내. 방식은 위 수법 이름으로 쓴다. [이미 쓴 수법]에 두 번 나온 것은 쓰지 않는다.
 - cliffhanger: 반드시 15자 이내. 나쁨: "악역이 사람들 앞에서 봉투를 집어던지며..." → 좋음: "봉투 던짐"
 - first_subtitle: {sub_info['name']}. {'반드시 ' + str(sub_info['max_chars']) + '자 이내. ' if sub_info['max_chars'] else ''}{sub_info['arc_bad_good']}
 - summary와 cliffhanger에는 캐릭터 바이블의 실제 이름을 쓴다. 대괄호 자리표시를 쓰지 않는다.
@@ -3014,7 +3038,7 @@ def build_block_prompt(concept, arc_block, block_no,
                         prev_block_summary="", emotional_modes=None,
                         producer_note="", tone=None, subtitle_style=None,
                         lead=None, _pw=DEFAULT_PAYWALL, target="", ai_mode=False,
-                        premise="", rewrite_note=""):
+                        premise="", rewrite_note="", memory_note=""):
     ep_range = arc_block.get("ep_range", f"EP {(block_no-1)*5+1}~{block_no*5}")
     episodes = arc_block.get("episodes", [])
     phase = arc_block.get("phase", "")
@@ -3079,6 +3103,12 @@ def build_block_prompt(concept, arc_block, block_no,
 
     prev = (f"\n[앞에서 일어난 일과 직전 원고의 끝 — 이미 드러난 비밀·정체를 인물이 처음 듣는 것처럼 다시 쓰지 않는다]\n{prev_block_summary}"
             if prev_block_summary else "")
+    terms = premise_terms(premise)
+    if terms:
+        prev += ("\n[전제어 — 이 블록 안에서 각각 한 번 이상 대사로 나온다]\n"
+                 + " / ".join(t[0] for t in terms) + "\n")
+    if memory_note.strip():
+        prev += "\n" + memory_note.strip() + "\n"
     try:
         _bn = int(block_no)
         prev += secret_plan_block(concept, (_bn - 1) * 5 + 1, _bn * 5, unit="블록")
@@ -3234,7 +3264,15 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
     규칙 예시에 나온 장소·소품·대사를 그대로 가져다 쓰지 않는다.
 13. 매 화 반전 1번 이상. 관객이 방금 예상한 것과 다른 일이 화 중간에 벌어진다. 클리프행어와 따로 센다.
 14. 화면 인서트(휴대폰·노트북·모니터)는 한 화 분량의 1/3을 넘지 않는다. 화면에 뜬 내용은 사람이 소리 내어 말한다.
-15. 이 원고는 집필 직후 자동 점검을 받는다. 대사 0줄인 화, 혼자 씬 10% 초과, 화면 인서트 1/3 초과가 나오면 통째로 다시 쓴다.
+15. 같은 지문 문장은 작품 전체에서 5번까지. '~을 본다'로 끝나는 지문은 한 화에 한 번까지. 시선은 손과 물건의 움직임으로 바꾼다.
+   나쁨: [강자]가 [주인공]을 본다. / [악역]이 [주인공]을 본다. / [주인공]의 숟가락이 멈춘다.
+   좋음: [강자]가 숟가락을 내려놓는다. / [악역]이 물컵을 [주인공] 쪽으로 민다.
+16. 호칭만 부르고 "네."로 받는 주고받기를 쓰지 않는다. 부르는 말에 바로 용건을 붙인다.
+   나쁨: [강자]  미령아. / [악역]  네, 어머니. / [강자]  그날 어디 있었어.
+   좋음: [강자]  미령아, 그날 어디 있었어.
+17. 금액·기간 같은 숫자는 한 번 정하면 끝까지 같다. [이미 정한 숫자]에 있는 것은 그대로 쓴다. 새 숫자를 만들 때는 앞 숫자와 맞물리게 한다.
+18. 전제어(작품의 기한·금액·뒤집는 장치)는 블록마다 한 번 이상 인물의 대사로 나온다. 시청자가 무엇이 걸린 싸움인지 잊지 않게 한다.
+19. 이 원고는 집필 직후 자동 점검을 받는다. 대사 0줄인 화, 혼자 씬 10% 초과, 화면 인서트 1/3 초과, 분량 미달, 지문 반복, 호칭 주고받기, 전제어 누락이 나오면 통째로 다시 쓴다.
 
 [출력 포맷 — 대사 중심 숏폼 리듬]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3784,6 +3822,166 @@ def check_premise_in_ep1(parsed, premise):
     return []
 
 
+# ── v3.5 지문 반복·호칭 주고받기·전제어·숫자 ──────────────
+STOCK_LIMIT = 5          # 같은 지문 문장 — 작품 전체
+LOOK_LIMIT_PER_EP = 1    # '~을 본다'로 끝나는 지문 문장 — 한 화
+MOVE_LIMIT = 2           # 같은 사람의 같은 수법 — 작품 전체
+_LOOK_RE = re.compile(r"(을|를)\s*\S*본다[.!]?$")
+_KIN_WORDS = ("어머니", "어머님", "아버님", "아버지", "형님", "동서", "여보", "자기야", "엄마", "아빠",
+              "언니", "오빠", "누나", "형", "아가씨", "도련님", "서방님", "선배", "회장님", "사장님", "대표님")
+_BARE_REPLY_RE = re.compile(r"^(네|예|응|어|왜|뭐|그래|왜요|뭐요)(,?\s*\S{1,4})?[.!?…~]*$")
+_REGRESS_TALK = re.compile(r"(전생|한 번 살|두 번 살|다시 살|이미 겪|겪어 봤|겪어봤|죽었다 살아|죽었다가|되돌아|돌아왔|그날로|다시 태어|살아 봤|살아봤|처음이 아니|회귀)")
+_HANGUL_DIGIT = {"일": 1, "이": 2, "삼": 3, "사": 4, "오": 5, "육": 6, "칠": 7, "팔": 8, "구": 9}
+_HANGUL_UNIT = {"십": 10, "백": 100, "천": 1000}
+
+
+def _hangul_to_int(t):
+    """'백', '삼십', '일' 같은 한글 숫자(만 아래)를 정수로. 못 읽으면 None."""
+    if t.isdigit():
+        return int(t)
+    total, cur = 0, 0
+    for ch in t:
+        if ch in _HANGUL_DIGIT:
+            cur = _HANGUL_DIGIT[ch]
+        elif ch in _HANGUL_UNIT:
+            total += (cur or 1) * _HANGUL_UNIT[ch]
+            cur = 0
+        else:
+            return None
+    return total + cur or None
+
+
+def _int_to_hangul(n):
+    if not (0 < n < 10000):
+        return None
+    out = ""
+    rev = {v: k for k, v in _HANGUL_DIGIT.items()}
+    for unit, name in ((1000, "천"), (100, "백"), (10, "십")):
+        q, n = divmod(n, unit)
+        if q:
+            out += ("" if q == 1 else rev[q]) + name
+    if n:
+        out += rev[n]
+    return out
+
+
+_NUM_UNIT_RE = re.compile(r"(?<![가-힣0-9])([0-9][0-9,]*|[일이삼사오육칠팔구십백천]+)\s?(조|억|만\s?원|일|개월|년)"
+                          r"(?=$|[^가-힣]|[은는이가을를의도만째치에로와과])")
+
+
+def premise_terms(premise):
+    """전제에서 전제어를 뽑는다. [(보여 줄 이름, 찾는 정규식)].
+    숫자+단위(1조, 100일)와 회귀 장치. 작품 고유 단어를 엔진에 박지 않고 전제 글에서 읽는다."""
+    terms, seen = [], set()
+    for m in _NUM_UNIT_RE.finditer(premise or ""):
+        num, unit = m.group(1).replace(",", ""), re.sub(r"\s", "", m.group(2))
+        n = _hangul_to_int(num)
+        if not n or (num, unit) in seen:
+            continue
+        seen.add((num, unit))
+        forms = {str(n)}
+        h = _int_to_hangul(n)
+        if h:
+            forms.add(h)
+        unit_re = r"만\s?원" if unit.startswith("만") else re.escape(unit)
+        rx = re.compile(r"(?<![0-9일이삼사오육칠팔구십백천])(?:" + "|".join(sorted(forms, key=len, reverse=True)) + r")\s?" + unit_re)
+        terms.append((f"{n}{unit if not unit.startswith('만') else '만 원'}", rx))
+    if _REGRESS_PREMISE.search(premise or ""):
+        terms.append(("회귀(다시 산다는 것)", re.compile(_REGRESS_TALK.pattern + "|" + _REGRESS_SCENE.pattern)))
+    return terms
+
+
+def _content(ln):
+    """대사 줄에서 이름과 (지시문)을 뗀 말."""
+    t = ln["text"][len(ln["speaker"]):].strip() if ln["speaker"] else ln["text"]
+    return re.sub(r"^\([^)]*\)\s*", "", t).strip()
+
+
+def _sentences(text):
+    return [x.strip() for x in re.split(r"(?<=[.!?])\s+", text or "") if x.strip()]
+
+
+def action_sentences(parsed):
+    """화별 지문 문장 목록. {화: [문장, ...]}"""
+    out = {}
+    for ep in parsed["episodes"]:
+        out[ep["ep"]] = [snt for sc in ep["scenes"] for ln in sc["lines"] if not ln["speaker"]
+                         for snt in _sentences(ln["text"]) if len(snt) >= 4]
+    return out
+
+
+def stock_counts(text, concept=None):
+    """원고 전체에서 같은 지문 문장이 몇 번 나왔는지."""
+    c = {}
+    for sents in action_sentences(parse_script(text, concept)).values():
+        for snt in sents:
+            c[snt] = c.get(snt, 0) + 1
+    return c
+
+
+def number_ledger(texts, limit=30):
+    """금액·기간이 나온 문장을 모은다. 다음 블록에 '이미 정한 숫자'로 넘긴다."""
+    seen, out = set(), []
+    for t in texts:
+        cands, prev = [], ""
+        for ln in (t or "").splitlines():
+            ln = ln.strip()
+            if not ln or _EP_RE.match(ln) or _SCENE_RE.match(ln) or _SUB_RE.match(ln) or _RULE_RE.match(ln):
+                continue
+            for snt in _sentences(ln):
+                cands.append((prev + " " + snt).strip() if len(snt) < 14 and prev else snt)
+            prev = ln[:40]
+        for snt in cands:
+            for m in _NUM_UNIT_RE.finditer(snt):
+                unit = re.sub(r"\s", "", m.group(2))
+                if unit == "일" and m.group(1) in _HANGUL_DIGIT:   # '일일', '이일' 같은 오검출 방지
+                    continue
+                key = re.sub(r"\s", "", m.group(0))
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(snt[:80])
+                break
+    return out[-limit:]
+
+
+def build_memory_note(prior_text, concept=None):
+    """앞 블록들에서 뽑은 장부: 많이 쓴 지문 문장, 이미 정한 숫자."""
+    parts = []
+    c = stock_counts(prior_text, concept)
+    worn = sorted([(n, snt) for snt, n in c.items() if n >= STOCK_LIMIT - 1], reverse=True)[:15]
+    if worn:
+        parts.append(f"[많이 쓴 지문 문장 — 작품 전체 {STOCK_LIMIT}번까지다. 아래 문장은 더 쓰지 않는다]\n"
+                     + "\n".join(f"- {snt} ({n}번)" for n, snt in worn))
+    c_src = []
+    if concept:
+        c_src.append(str(concept.get("logline", "")))
+        for k in ("protagonist", "villain"):
+            v = concept.get(k) or {}
+            if isinstance(v, dict):
+                c_src.append(" ".join(str(x) for x in v.values()))
+    nums = number_ledger(c_src + [prior_text])
+    if nums:
+        parts.append("[이미 정한 숫자 — 같은 대상의 금액·기간은 이 숫자 그대로 쓴다]\n" + "\n".join(f"- {x}" for x in nums))
+    return "\n\n".join(parts)
+
+
+def check_finale_quotes(parsed, finale_note, total_eps):
+    """결말 노트에 따옴표로 적은 대사가 최종화에 글자 그대로 있는지."""
+    if not finale_note or not total_eps:
+        return []
+    ep = next((e for e in parsed["episodes"] if e["ep"] == int(total_eps)), None)
+    if ep is None:
+        return []
+    whole = _norm(" ".join(ln["text"] for sc in ep["scenes"] for ln in sc["lines"]))
+    out = []
+    for q in re.findall(r'["“]([^"”]{2,})["”]', finale_note):
+        parts = [_norm(x) for x in re.split(r"[.!?…]+", q) if _norm(x)]
+        if parts and any(x not in whole for x in parts):
+            out.append(f'EP {ep["ep"]}: 결말 노트의 대사 "{q}"가 최종화에 글자 그대로 들어 있지 않습니다. 그대로 넣습니다.')
+    return out
+
+
 def _villain_names(concept):
     """주적 이름(성+이름, 이름)."""
     v = (concept or {}).get("villain") or {}
@@ -3797,9 +3995,10 @@ def _villain_names(concept):
     return sorted(out, key=len, reverse=True)
 
 
-def check_script(text, concept=None, ai_mode=False, fixed_text="", premise="", paywall_ep=None):
-    """집필된 블록을 점검한다. 돌려주는 값:
-    {"ok": bool, "issues": [사람이 읽는 문장], "stats": {...}}"""
+def check_script(text, concept=None, ai_mode=False, fixed_text="", premise="", paywall_ep=None,
+                 prior_text="", finale_note=""):
+    """집필된 블록을 점검한다. prior_text는 앞 블록들의 원고(지문 반복·전제어를 작품 단위로 본다).
+    돌려주는 값: {"ok": bool, "issues": [사람이 읽는 문장], "stats": {...}}"""
     parsed = parse_script(text, concept)
     total_eps = int((concept or {}).get("total_eps") or 0) or None
     villain = _villain_names(concept)
@@ -3811,6 +4010,9 @@ def check_script(text, concept=None, ai_mode=False, fixed_text="", premise="", p
 
     issues += check_fixed_endings(parsed, fixed_text)
     issues += check_premise_in_ep1(parsed, premise)
+    issues += check_finale_quotes(parsed, finale_note, int((concept or {}).get("total_eps") or 0))
+    issues += check_wording(parsed, concept, prior_text)
+    issues += check_premise_terms(parsed, concept, premise, prior_text)
 
     faces = set()
     for ep in eps:
@@ -3883,6 +4085,57 @@ def check_script(text, concept=None, ai_mode=False, fixed_text="", premise="", p
             issues.append(f"얼굴이 나오는 인물이 {len(uniq)}명입니다 ({', '.join(uniq)}). AI 제작 모드는 4명 이하입니다. "
                           f"나머지는 목소리나 뒷모습으로 바꿉니다.")
     return {"ok": not issues, "issues": issues, "stats": stats}
+
+
+def check_wording(parsed, concept=None, prior_text=""):
+    """같은 지문 문장 반복, 한 화의 '~을 본다' 지문, 호칭만 부르고 '네'로 받는 주고받기."""
+    issues = []
+    prior = stock_counts(prior_text, concept) if prior_text else {}
+    here = action_sentences(parsed)
+    total = dict(prior)
+    for sents in here.values():
+        for snt in sents:
+            total[snt] = total.get(snt, 0) + 1
+    worn = [snt for snt, n in total.items() if n > STOCK_LIMIT and any(snt in v for v in here.values())]
+    if worn:
+        issues.append(f"같은 지문 문장이 작품 전체에서 {STOCK_LIMIT}번을 넘었습니다: "
+                      + " / ".join(f"'{x}'({total[x]}번)" for x in worn[:6])
+                      + ". 이 블록에서는 다른 행동으로 바꿉니다.")
+    for ep_no, sents in here.items():
+        looks = [x for x in sents if _LOOK_RE.search(x)]
+        if len(looks) > LOOK_LIMIT_PER_EP:
+            issues.append(f"EP {ep_no}: '~을 본다'로 끝나는 지문이 {len(looks)}번입니다(한 화에 {LOOK_LIMIT_PER_EP}번까지). "
+                          f"{' / '.join(looks[:3])} — 하나만 남기고 손과 물건의 움직임으로 바꿉니다.")
+    names = set(parsed.get("known") or []) | set(parsed.get("speakers") or [])
+    addr = re.compile(r"^(?:" + "|".join(re.escape(x) for x in sorted(set(_KIN_WORDS) | names, key=len, reverse=True))
+                      + r")(?:아|야|씨|님)?[.!?…~]*$") if names or _KIN_WORDS else None
+    for ep in parsed["episodes"]:
+        dialog = [ln for sc in ep["scenes"] for ln in sc["lines"] if ln["speaker"]]
+        hits = []
+        for a, b in zip(dialog, dialog[1:]):
+            if a["speaker"] != b["speaker"] and addr and addr.match(_content(a)) and _BARE_REPLY_RE.match(_content(b)):
+                hits.append(f"{a['text']} / {b['text']}")
+        if hits:
+            issues.append(f"EP {ep['ep']}: 호칭만 부르고 대답만 하는 주고받기 {len(hits)}번 ({hits[0]}). "
+                          f"부르는 말에 바로 용건을 붙여 한 줄로 합칩니다.")
+    return issues
+
+
+def check_premise_terms(parsed, concept, premise, prior_text=""):
+    """전제어가 열 화마다 한 번은 대사나 지문에 나오는지. 앞 블록과 이 블록을 합쳐 열 화를 본다."""
+    terms = premise_terms(premise)
+    eps = parsed["episodes"]
+    if not terms or not eps:
+        return []
+    last = max(e["ep"] for e in eps)
+    pool = [e for e in (parse_script(prior_text, concept)["episodes"] if prior_text else []) if e["ep"] > last - 10] + eps
+    first = min(e["ep"] for e in pool)
+    text = " ".join(ln["text"] for e in pool for sc in e["scenes"] for ln in sc["lines"])
+    miss = [label for label, rx in terms if not rx.search(text)]
+    if miss:
+        return [f"EP {first}~{last}: 전제어 {', '.join(miss)}가 한 번도 나오지 않습니다. "
+                f"이 블록 안에 인물의 대사로 한 번 이상 넣습니다."]
+    return []
 
 
 def build_rewrite_note(issues, previous_script):

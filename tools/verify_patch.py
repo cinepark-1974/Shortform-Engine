@@ -247,6 +247,31 @@ def static_check():
         fails.append(f"반복 심사(v3.4): 응답 해석 오류 {ri}")
     if P.repeat_review_issues(None, 1, 25) != []:
         fails.append("반복 심사(v3.4): 빈 응답 처리 오류")
+    # v3.5: 지문 반복, 본다 지문, 호칭 주고받기, 전제어, 결말 노트 대사, 수법 장부
+    prem = "형님 손에 죽고 눈을 떠 보니, 시어머니가 100일 남았다는 날이었다. 1조는 한 사람에게만 간다."
+    if [t[0] for t in P.premise_terms(prem)] != ["100일", "1조", "회귀(다시 산다는 것)"]:
+        fails.append(f"전제어(v3.5): 추출 오류 {[t[0] for t in P.premise_terms(prem)]}")
+    if not P.premise_terms(prem)[0][1].search("백일이래") or not P.premise_terms(prem)[1][1].search("일조다"):
+        fails.append("전제어(v3.5): 한글 숫자 표기(백일, 일조)를 못 찾음")
+    cc5 = {"protagonist": {"name": "윤서연"}, "villain": {"name": "강해수"}, "supporting_cast": [{"name": "옥분"}]}
+    ep5 = ("EP 7 | 😡 분노 | D1\n[자막] \"[분노] 약\"\n\nS#1. 본가 — 식탁. 낮.\n"
+           "옥분이 서연을 본다. 해수가 서연을 본다.\n\n옥분  해수야.\n해수  네, 어머니.\n"
+           + "\n".join(["해수  약은 내가 챙겨.", "서연  제가 할게요."] * 4) + "\n\n세 사람이 앉아 있다.")
+    prior5 = "\n\n".join(ep5.replace("EP 7", f"EP {k}") for k in range(1, 6))
+    j5 = " ".join(P.check_script(ep5, cc5, premise=prem, prior_text=prior5)["issues"])
+    for need in ("'~을 본다'로 끝나는 지문이 2번", "호칭만 부르고", "같은 지문 문장이 작품 전체에서 5번을 넘었습니다", "전제어 100일, 1조"):
+        if need not in j5:
+            fails.append(f"자동 점검기(v3.5): '{need}'를 못 잡음")
+    fq = P.check_finale_quotes(P.parse_script("EP 5 | x\n[자막] \"a\"\nS#1. 집. 낮.\n서연  저는 다시 왔어요.", cc5),
+                               '서연이 밝힌다. "저는 이 백일을 한 번 살았어요."', 5)
+    if not fq:
+        fails.append("결말 노트(v3.5): 따옴표 대사 누락을 못 잡음")
+    mv_prior = [{"ep": 14, "move": "미령·잠그기"}, {"ep": 31, "move": "미령·잠그기"}]
+    mv_blk = [{"block_no": 10, "phase": "봉쇄", "episodes": [{"ep": 46, "summary": "대문 비번 교체", "move": "미령·잠그기"}]}]
+    if "EP46의 수법 '미령·잠그기'" not in " ".join(P.check_arc_chunk(mv_blk, [], mv_prior)):
+        fails.append("아크 점검(v3.5): 세 번째 같은 수법을 못 잡음")
+    if "더 쓰지 않는다" not in P.move_tally(mv_prior):
+        fails.append("수법 장부(v3.5): 두 번 쓴 수법 표시 누락")
     print(f"조합 {n}개 × 프롬프트 9종 점검 + 화수별 아크 + 자동 점검기")
     if fails:
         print(f"실패 {len(fails)}건")

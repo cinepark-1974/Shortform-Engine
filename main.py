@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v3.4 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v3.5 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -22,7 +22,7 @@ import hashlib
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "3.4.0"
+EXPECTED_ENGINE_VERSION = "3.5.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -176,7 +176,7 @@ def init():
          "producer_note":"","selected_block":None,
          "premise":"","premise_check":None,"block_checks":{},
          "import_pending":None,"import_report":None,
-         "total_eps_key":100,"author_fixed":""}
+         "total_eps_key":100,"author_fixed":"","finale_note":""}
     for k,v in d.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -188,12 +188,12 @@ init()
 # (1) 파일로 저장하고 다시 올려 이어 쓴다. (2) 단계가 끝날 때마다 서버에 자동 보관하고,
 #     연결이 다시 맺어지면 되살린다.
 WORK_STATE_KEYS = ["step", "concept", "arc", "blocks", "block_modes", "block_checks",
-                   "premise", "premise_check", "producer_note", "author_fixed",
+                   "premise", "premise_check", "producer_note", "author_fixed", "finale_note",
                    "selected_block", "convert_result", "pilot_text"]
 WORK_WIDGET_KEYS = ["tone_key", "lead_key", "subtitle_key", "paywall_key", "target_key",
                     "ai_mode_key", "auto_check_key", "fs", "mkt", "rtg", "total_eps_key",
                     "premise_input", "protagonist_input", "secrets_input", "villain_input",
-                    "sq_input", "hint_input", "custom_input", "pn_input", "skip_premise"]
+                    "sq_input", "hint_input", "custom_input", "pn_input", "fn_input", "skip_premise"]
 INT_KEYED = ["blocks", "block_modes", "block_checks"]
 AUTOSAVE_DIR = os.path.join(tempfile.gettempdir(), "shortform_engine_autosave")
 
@@ -230,6 +230,7 @@ def import_work(data):
             st.session_state[k] = v
     # 프로듀서 노트 칸은 보관된 노트와 같게 맞춘다. (칸이 비어 있으면 노트를 지워 버린다)
     st.session_state["pn_input"] = st.session_state.get("producer_note") or ""
+    st.session_state["fn_input"] = st.session_state.get("finale_note") or ""
     if st.session_state.get("total_eps_key") not in (20, 30, 50, 80, 90, 100):
         st.session_state["total_eps_key"] = 100
 
@@ -575,7 +576,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
             add(clean_text(txt), "지문")
 
     doc.add_paragraph(); doc.add_paragraph()
-    add(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v3.4 · {datetime.now().strftime('%Y-%m-%d')}", "끝문구")
+    add(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v3.5 · {datetime.now().strftime('%Y-%m-%d')}", "끝문구")
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -632,6 +633,9 @@ def arc_ledger(blocks, before_ep=None):
                     extra += f" / 끝: {cl}"
                 if sb:
                     extra += f" / 자막: {sb}"
+                mv = str(e.get("move", "")).strip()
+                if mv:
+                    extra += f" / 수법: {mv}"
                 lines.append(f"EP{n}: {ev}{extra}")
     return "\n".join(lines)
 
@@ -674,19 +678,22 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         best, best_issues = None, None
         fix_note = ""
         prior_phases = [str(b.get("phase", "")) for b in all_blocks]
+        chunk_note = producer_note
+        if end_ep >= int(total_eps) and finale_note_block():
+            chunk_note = (producer_note + "\n\n" if producer_note else "") + finale_note_block()
         for attempt in range(3):  # 파싱 실패 재시도 1회 + 점검 불합격 재설계 1회
             label = "다시 설계 중" if fix_note else "생성 중"
             with st.spinner(f"🔄 아크 청크 {chunk}/{total_chunks} {label}... (EP{start_ep}~{end_ep})"):
                 raw = call_claude(
                     P.build_arc_prompt(concept, total_eps,
-                        producer_note=(producer_note + "\n\n" + fix_note).strip() if fix_note else producer_note,
+                        producer_note=(chunk_note + "\n\n" + fix_note).strip() if fix_note else chunk_note,
                         chunk=chunk, total_chunks=total_chunks,
                         prev_summary=prev_summary,
                         subtitle_style=subtitle_style,
                         lead=lead, paywall_ep=paywall_ep,
                         target=target, ai_mode=ai_mode, premise=premise),
                     MAX_TOKENS_ARC,
-                    system=f"You are a concise JSON generator for a {int(total_eps)}-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean. 5) first_subtitle: {sub_limit}. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL {(end_ep - start_ep + 1) // 5} blocks of this chunk with ALL 5 episodes each. Never truncate."
+                    system=f"You are a concise JSON generator for a {int(total_eps)}-episode drama arc. Rules: 1) Output ONLY valid JSON. 2) No markdown fences, no explanation. 3) summary: MAX 15 chars Korean. 4) cliffhanger: MAX 15 chars Korean; move: MAX 10 chars Korean, '이름·방식'. 5) first_subtitle: {sub_limit}. 6) Do NOT add fields not in the schema (no dopamine_moment, no market_hook, no recommended_emotion_modes). 7) Complete ALL {(end_ep - start_ep + 1) // 5} blocks of this chunk with ALL 5 episodes each. Never truncate."
                 )
             cand = safe_json(raw)
             if not cand or not cand.get("blocks"):
@@ -720,7 +727,9 @@ def generate_arc_chunks(concept, total_eps, producer_note, progress_placeholder)
         prev_summary = ("\n".join(all_summaries)
                         + "\n\n[이미 쓴 블록 국면 이름 — 겹치지 않게]\n"
                         + ", ".join(str(b.get("phase", "")) for b in all_blocks)
-                        + "\n\n[이미 일어난 일 — 화별]\n" + arc_ledger(all_blocks))
+                        + "\n\n[이미 일어난 일 — 화별]\n" + arc_ledger(all_blocks)
+                        + "\n\n[이미 쓴 수법 — 같은 사람의 같은 수법은 작품 전체에서 두 번까지]\n"
+                        + (P.move_tally([e for b in all_blocks for e in b.get("episodes", [])]) or "(없음)"))
         progress_placeholder.success(f"✅ 청크 {chunk}/{total_chunks} 완료 — {len(result.get('blocks',[]))}블록")
 
     # 병합
@@ -814,7 +823,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.4 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.5 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 작업 저장 · 불러오기 ─────────────────────────
@@ -859,6 +868,15 @@ with st.expander("🎬 프로듀서 노트 — 모든 단계에 반영됩니다"
         height=80, label_visibility="collapsed", key="pn_input")
     if pn != st.session_state.producer_note:
         st.session_state.producer_note = pn
+    st.markdown('<div style="font-size:.75rem;color:var(--dim);margin:.6rem 0 .3rem">'
+                '결말 집필용 노트 — 마지막 화가 든 아크 구간과 마지막 블록에만 들어갑니다. '
+                '따옴표 안의 대사는 마지막 화에 글자 그대로 들어갔는지 자동 점검합니다.</div>',
+                unsafe_allow_html=True)
+    fn = st.text_area("결말 집필용 노트", value=st.session_state.finale_note,
+        placeholder='예: 악역은 걸어 나가지 않는다. 경찰이 현관에서 데려간다.\n예: 주인공이 처음으로 밝힌다. "저는 이 백일을 한 번 살았어요."\n예: 마지막 그림: 식탁에 두 사람, 빈 의자 하나.',
+        height=90, label_visibility="collapsed", key="fn_input")
+    if fn != st.session_state.finale_note:
+        st.session_state.finale_note = fn
 
 # ─── 공통 설정 (전 단계 공통) ────────────────────
 # 컨셉을 만들기 전에 고릅니다. 중간에 바꾸면 이미 만든 컨셉·아크와 어긋납니다.
@@ -1062,14 +1080,17 @@ def write_block_checked(make_prompt, concept, bn):
     rt = stream_block(make_prompt(""), f"블록{bn} 집필 중...", f"s_{bn}_0")
     fixed_text = (st.session_state.get("author_fixed") or "") + "\n" + (st.session_state.get("producer_note") or "")
     _prem = st.session_state.get("premise") or ""
-    check = P.check_script(rt, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem, paywall_ep=paywall_key)
+    _prior = prior_blocks_text(bn)
+    _fn = st.session_state.get("finale_note") or ""
+    _xk = dict(prior_text=_prior, finale_note=_fn)
+    check = P.check_script(rt, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem, paywall_ep=paywall_key, **_xk)
     tries = 0
     while auto_check_key and not check["ok"] and tries < 2:
         tries += 1
         st.warning(f"자동 점검 불합격 — 다시 씁니다 ({tries}/2)\n\n" + "\n".join(f"- {i}" for i in check["issues"][:6]))
         rt2 = stream_block(make_prompt(P.build_rewrite_note(check["issues"], rt)),
                            f"블록{bn} 다시 쓰는 중... ({tries}/2)", f"s_{bn}_{tries}")
-        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem, paywall_ep=paywall_key)
+        check2 = P.check_script(rt2, concept, ai_mode=ai_mode_key, fixed_text=fixed_text, premise=_prem, paywall_ep=paywall_key, **_xk)
         if len(check2["issues"]) <= len(check["issues"]):   # 더 나은 쪽을 남긴다
             rt, check = rt2, check2
     check["rewrites"] = tries
@@ -1142,6 +1163,20 @@ def default_block_modes(bn, blk):
     if no_rom:
         modes = [NO_ROMANCE_SWAP.get(m, m) for m in modes]
     return modes
+
+
+def finale_note_block():
+    """결말 집필용 노트를 프롬프트에 붙이는 꼴로."""
+    fn = (st.session_state.get("finale_note") or "").strip()
+    if not fn:
+        return ""
+    return ("[결말 집필용 노트 — 작가가 정해 둔 결말이다. 반드시 지킨다. 따옴표 안의 대사는 마지막 화에 글자 그대로 쓴다]\n" + fn)
+
+
+def prior_blocks_text(bn):
+    """블록 bn 앞에 쓴 원고 전체."""
+    bl = st.session_state.get("blocks") or {}
+    return "\n\n".join(bl[k] for k in sorted(bl) if isinstance(k, int) and k < bn)
 
 
 def note_with_fixed():
@@ -1608,7 +1643,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v3.4 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v3.5 — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1839,13 +1874,19 @@ with tab_create:
                     if _ledger:
                         prev_s = "[앞에서 일어난 일 — 화별]\n" + _ledger + ("\n\n[직전 원고의 끝]\n" + prev_s if prev_s else "")
                     with st.spinner(f"블록{bn} {mode_disp} 각본 집필 중... (Opus)"):
-                        def make_prompt(rewrite_note="", _blk=blk, _bn=bn, _prev=prev_s, _modes=default_modes):
+                        _total = int((st.session_state.concept or {}).get("total_eps") or 0)
+                        _is_last = any(int(e.get("ep", 0) or 0) == _total for e in blk.get("episodes", []))
+                        _note = note_with_fixed() + (("\n\n" + finale_note_block()) if _is_last and finale_note_block() else "")
+                        _mem = P.build_memory_note(prior_blocks_text(bn), st.session_state.concept)
+
+                        def make_prompt(rewrite_note="", _blk=blk, _bn=bn, _prev=prev_s, _modes=default_modes,
+                                        _note=_note, _mem=_mem):
                             return P.build_block_prompt(
                                 st.session_state.concept, _blk, _bn, _prev,
                                 emotional_modes=_modes,
-                                producer_note=note_with_fixed(),
+                                producer_note=_note,
                                 premise=st.session_state.premise,
-                                rewrite_note=rewrite_note, **common_opts())
+                                rewrite_note=rewrite_note, memory_note=_mem, **common_opts())
                         try:
                             rt, check = write_block_checked(make_prompt, st.session_state.concept, bn)
                         except APIStop:
@@ -1875,7 +1916,7 @@ with tab_create:
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
         title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v3.4\n제목: {title}\n"
+        full = f"👖 BLUE JEANS SHORTFORM ENGINE v3.5\n제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -2116,7 +2157,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v3.4 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE v3.5 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -2192,6 +2233,6 @@ with tab_convert:
 autosave()
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.4 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.5 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )
