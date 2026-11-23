@@ -1,5 +1,5 @@
 """
-👖 BLUE JEANS SHORTFORM ENGINE v3.5 — main.py
+👖 BLUE JEANS SHORTFORM ENGINE v3.6 — main.py
 집필: claude-opus-4-6 / 설계: claude-sonnet-4-6
 © 2026 BLUE JEANS PICTURES
 """
@@ -22,7 +22,7 @@ import hashlib
 
 # 배포 서버가 main.py만 새로 읽고 prompt.py는 예전 것을 메모리에 들고 있을 때가 있다.
 # 버전이 맞지 않으면 prompt.py를 다시 읽는다.
-EXPECTED_ENGINE_VERSION = "3.5.0"
+EXPECTED_ENGINE_VERSION = "3.6.0"
 if getattr(P, "ENGINE_VERSION", None) != EXPECTED_ENGINE_VERSION:
     P = importlib.reload(P)
 from docx import Document as DocxDocument
@@ -576,7 +576,7 @@ def build_docx(text, title="SHORTFORM ENGINE", subtitle=""):
             add(clean_text(txt), "지문")
 
     doc.add_paragraph(); doc.add_paragraph()
-    add(f"© 2026 BLUE JEANS PICTURES · Shortform Engine v3.5 · {datetime.now().strftime('%Y-%m-%d')}", "끝문구")
+    add(f"© 2026 BLUE JEANS PICTURES · {datetime.now().strftime('%Y-%m-%d')}", "끝문구")
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -823,7 +823,7 @@ def highlight_script(text):
 
 
 # ─── 브랜드 헤더 ──────────────────────────────────
-render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.5 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
+render_header("SHORTFORM ENGINE", tagline="100 EPISODES × 1 MINUTE", note="v3.6 · DOPAMINE DESIGN · 25 EMOTIONS · 100EP")
 st.caption(f"집필: {MODEL_WRITE} · 설계: {MODEL_PLAN} · 22클릭 → 100화 완성")
 
 # ─── 작업 저장 · 불러오기 ─────────────────────────
@@ -911,7 +911,7 @@ with col_target:
     st.caption("주인공의 나이와 처지를 이 타겟에 맞춥니다.")
 with col_ai:
     ai_mode_key = st.toggle("AI 제작 모드", value=False, key="ai_mode_key")
-    st.caption("얼굴 4명·세트 5곳 이하, 몸싸움은 소리와 암전, 침대 2인 금지, 식탁·클로즈업·손·소품 위주.")
+    st.caption("얼굴 4명, 고정 장소 10~15곳을 되풀이(한 곳 40% 이하·야외 15~20%), 몸싸움은 소리와 암전, 침대 2인 금지.")
     auto_check_key = st.toggle("집필 후 자동 점검", value=True, key="auto_check_key")
     st.caption("대사 0줄·혼자 씬 10% 초과·화면 인서트 1/3 초과면 다시 씁니다.")
 
@@ -1005,6 +1005,55 @@ def apply_import_pending():
         for k, v in pending.items():
             st.session_state[k] = v
         st.session_state.import_pending = None
+
+
+def show_production_report(blocks, concept):
+    """집필 후 보고 (v3.6): 장소별 씬 수·야외 비율 표, 장소·이야기 문제, 미회수 떡밥 목록."""
+    text = "\n\n".join(blocks[bn] for bn in sorted(blocks.keys()))
+    if not text.strip():
+        return
+    st.markdown('<div class="section-header">📋 집필 후 보고 <span class="en">LOCATION · HOOK REPORT</span></div>', unsafe_allow_html=True)
+    lr = P.location_report(text, concept)
+    sr = P.story_report(text, concept)
+    s = lr["stats"]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("씬", s["scenes"])
+    c2.metric("장소", s["places"])
+    c3.metric("야외 씬", f"{s['outdoor']} ({s['outdoor_ratio']:.0%})", help="목표 15~20%")
+    top = s["table"][0] if s["table"] else None
+    c4.metric("가장 많은 장소", f"{top['share']:.0%}" if top else "-", help="목표 40% 이하")
+    rows = [{"장소": r["place"], "씬": r["scenes"], "비율": f"{r['share']:.0%}", "야외": "야외" if r["outdoor"] else "",
+             "밤": r["night"], "목록": ("" if r["in_list"] is None else ("O" if r["in_list"] else "목록 밖")),
+             "나오는 화": ", ".join(map(str, r["eps"][:12])) + (" …" if len(r["eps"]) > 12 else "")} for r in s["table"]]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    issues = lr["issues"] + sr["issues"]
+    if issues:
+        st.markdown("**고칠 점**")
+        for i in issues:
+            st.markdown(f"- {i}")
+    else:
+        st.success("장소·야외·이야기 연결 점검에서 걸린 것이 없습니다.")
+    if sr["stats"].get("tools"):
+        st.caption("반격 수단 말 횟수: " + " · ".join(f"{w} {c}" for w, c in list(sr["stats"]["tools"].items())[:8]))
+    if st.button("🔎 미회수 떡밥·화 사이 연결 점검 (Claude)", key="hook_review_btn"):
+        with st.spinner("화 끝과 다음 화 첫 장면을 맞춰 보는 중..."):
+            raw = call_claude(P.build_hook_review_prompt(text), 6000, system=P.HOOK_REVIEW_SYSTEM)
+        st.session_state["hook_review"] = safe_json(raw) or {"_raw": raw}
+    hr = st.session_state.get("hook_review")
+    if hr:
+        if "_raw" in hr:
+            st.text(hr["_raw"][:3000])
+        else:
+            unpaid = [u for u in hr.get("unpaid", []) if isinstance(u, dict)]
+            late = [u for u in unpaid if not u.get("paid_ep") or int(u.get("paid_ep") or 0) - int(u.get("ep") or 0) > 3]
+            st.markdown(f"**미회수·늦은 회수 {len(late)}개**")
+            if late:
+                st.dataframe([{"건 화": u.get("ep"), "걸어 둔 것": u.get("hook"), "회수": u.get("paid_ep") or "없음"} for u in late],
+                             use_container_width=True, hide_index=True)
+            br = [b for b in hr.get("breaks", []) if isinstance(b, dict)]
+            st.markdown(f"**화 사이 연결이 어긋난 곳 {len(br)}개**")
+            if br:
+                st.dataframe([{"화": b.get("ep"), "문제": b.get("problem")} for b in br], use_container_width=True, hide_index=True)
 
 
 def show_import_report():
@@ -1643,7 +1692,7 @@ with tab_create:
                 )
 
                 # 아크 다운로드
-                arc_txt = f"BLUE JEANS SHORTFORM ENGINE v3.5 — {st.session_state.concept.get('title','')}\n"
+                arc_txt = f"BLUE JEANS SHORTFORM ENGINE — {st.session_state.concept.get('title','')}\n"
                 arc_txt += f"아크: {arc.get('arc_summary','')}\n\n"
                 for blk in blocks:
                     arc_txt += f"[{blk.get('ep_range','')} — {blk.get('phase','')} / {blk.get('sweet_bitter','')} / {blk.get('dopamine_target','')}]\n"
@@ -1845,7 +1894,8 @@ with tab_create:
                 col_dl, col_re, col_del = st.columns(3)
                 with col_dl:
                     block_docx = build_docx(st.session_state.blocks[bn],
-                        title=f"블록{bn} — {ep_r}", subtitle=phase)
+                        title=((st.session_state.concept or {}).get("title") or "").strip() or "제목 미정",
+                        subtitle=f"블록{bn} — {ep_r} · {phase}")
                     st.download_button(f"⬇️ 블록{bn} DOCX", block_docx,
                         file_name=f"block{bn:02d}_{ep_r.replace(' ','')}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1915,8 +1965,8 @@ with tab_create:
         total_b = len(st.session_state.blocks)
         st.success(f"✅ {total_b}개 블록 완성 — 약 {total_b*5}화 대본")
 
-        title = st.session_state.concept.get("title","shortform") if st.session_state.concept else "shortform"
-        full = f"👖 BLUE JEANS SHORTFORM ENGINE v3.5\n제목: {title}\n"
+        title = ((st.session_state.concept or {}).get("title") or "").strip() or "제목 미정"
+        full = f"제목: {title}\n"
         if st.session_state.concept:
             full += f"로그라인: {st.session_state.concept.get('logline','')}\n"
             dd = st.session_state.concept.get("dopamine_design",{})
@@ -1929,6 +1979,8 @@ with tab_create:
             ep_r = bi_info.get("ep_range",f"블록{bn}")
             full += f"\n{'='*60}\n[블록{bn} — {ep_r}]\n{'='*60}\n\n"
             full += st.session_state.blocks[bn] + "\n\n"
+
+        show_production_report(st.session_state.blocks, st.session_state.concept)
 
         col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
         with col_dl1:
@@ -2157,7 +2209,7 @@ with tab_convert:
 
             col_dl1, col_dl2, col_dl3 = st.columns(3)
             with col_dl1:
-                out = f"BLUE JEANS SHORTFORM ENGINE v3.5 — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
+                out = f"BLUE JEANS SHORTFORM ENGINE — 파일럿 (Opus)\n제목: {sc.get('title','')}\n로그라인: {sc.get('logline','')}\n\n{pilot_full}"
                 pilot_docx = build_docx(pilot_full,
                     title=f"파일럿 — {sc.get('title','')}",
                     subtitle=sc.get('logline',''))
@@ -2233,6 +2285,6 @@ with tab_convert:
 autosave()
 st.markdown(
     '<div style="text-align:center;font-size:.62rem;padding:30px 0 16px;letter-spacing:2px;opacity:.2;">'
-    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.5 · Opus(집필) + Sonnet(설계)'
+    '© 2026 BLUE JEANS PICTURES · Shortform Engine v3.6 · Opus(집필) + Sonnet(설계)'
     '</div>', unsafe_allow_html=True
 )

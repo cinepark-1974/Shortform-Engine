@@ -11,7 +11,7 @@ v2.4: 한 문장 전제 점검 · 20/30/50화 · EP1 기준 6개 · 매 화 반�
 import re
 
 # main.py가 기대하는 버전과 다르면 main.py가 이 파일을 다시 읽는다.
-ENGINE_VERSION = "3.5.0"
+ENGINE_VERSION = "3.6.0"
 
 
 # ─── 모델 분업 ───────────────────────────────────────
@@ -245,7 +245,7 @@ def target_block(target=""):
 AI_MODE_RULES = """[AI 제작 모드 — 이 대본은 AI 영상 모델로 만든다. 작품 톤보다 먼저다]
 - 얼굴이 나오는 인물은 작품 전체에서 4명 이하. 그 밖의 사람은 목소리, 뒷모습, 손, 문 너머의 소리로만 나온다.
   구경꾼이 필요하면 수군거리는 소리로 처리한다. 얼굴을 주지 않는다.
-- 세트는 작품 전체에서 5곳 이하. 같은 세트를 반복해 쓴다. 새 장소가 필요하면 기존 세트의 다른 구석을 쓴다.
+- 장소는 컨셉의 [고정 장소 목록] 안에서만 쓴다. 장소 수보다 목록을 지키고 되풀이해 쓰는 것이 먼저다. 한 번 만든 장소는 다시 쓰는 비용이 없다.
 - 몸이 부딪히는 액션(밀기, 몸싸움, 뺨, 넘어짐)은 닿는 순간을 찍지 않는다.
   손이 올라간다 → (암전) + (소리만) → 맞은 뒤의 얼굴. 지문에 '(암전)'과 '(소리만)'을 적는다.
 - 한 화면에 두 사람이 침대에 함께 있는 그림은 쓰지 않는다. 스틸·영상 모델의 검열에 걸린다.
@@ -256,7 +256,7 @@ AI_MODE_RULES = """[AI 제작 모드 — 이 대본은 AI 영상 모델로 만�
 AI_MODE_CONCEPT = """[AI 제작 모드 — 컨셉 설계 제약]
 - 얼굴이 나오는 인물은 주인공과 악역을 포함해 4명 이하로 설계한다.
   helper나 rival이 필요 없으면 name을 빈 문자열로 둔다. supporting_cast는 0~2명. (이 모드에서는 '최소 3명' 규칙을 쓰지 않는다)
-- location_design의 main_locations와 sub_locations를 합쳐 5곳 이하. 식탁이 있는 세트를 반드시 하나 넣는다.
+- 장소는 location_design.fixed_locations 10~15곳으로 고정한다(아래 장소 설계 규칙). 식탁이 있는 중심 장소를 반드시 하나 넣는다.
 - 굴욕과 응징은 몸싸움이 아니라 말, 자리, 소품으로 설계한다."""
 
 
@@ -2301,9 +2301,17 @@ LOCATION_RULES = """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 장소 설계 규칙
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-L1. 주 장소 2~3개(70%) + 보조 3~5개(30%). 1화 1~3씬. S# = 장소/시간 전환 단위.
-L2. 세로 화면 유리: 복도/계단/엘리베이터/차안/침실/주방/문앞 ✓
-    세로 화면 불리: 광장/공원/야외 ✗
+L1. 장소 목록 10~15곳을 컨셉 단계에서 확정하고(fixed_locations) 그 안에서만 쓴다. 1화 1~3씬. S# = 장소/시간 전환 단위.
+    목록 예: 집 안(식탁·거실·주방·서재·침실들·현관) / 호텔 한 곳(한식당·라운지 카페·화장실·엘리베이터·로비·입구·주차장)
+            / 야외(골프장 테라스·집 앞·산책로·병원 앞) / 그 밖(은행·약국·병원)
+    · 모든 장소는 2회 이상 쓴다. 한 번만 나오는 장소는 결말부가 아니면 만들지 않는다.
+    · 한 장소가 전체 씬의 40%를 넘지 않는다. 1화와 최종화는 같은 중심 장소에서.
+L2. 야외는 전체 씬의 15~20%. 10화마다 야외 씬 1개 이상, 무료 구간(EP1~5)에 야외 1씬 필수.
+    실내 대화만 이어지면 AI 영상에서 다 비슷해 보인다.
+    · 야외 장소도 2회 이상 쓴다. 골프장은 클럽하우스 안이 아니라 테라스·그린·카트 길.
+    · 야외 씬은 넓은 그림 한 컷으로 열고, 대사는 짧게 3~5줄, 걷거나 차에 타는 움직임을 넣는다.
+    · 낮과 밤을 섞는다. 밤 야외(주차장 입구, 가로등 아래 집 앞)는 위협 장면에 쓴다.
+    세로 화면에서 큰 광장의 풀샷은 피하고, 사람 둘이 걷는 길·테라스·주차장 입구처럼 좁게 자른 야외를 쓴다.
     식장·빈소·총회장·경매장 같은 큰 실내는 쓴다. 단, 풀샷으로 찍지 않는다.
     단상 하나, 하객석 한 줄, 테이블 하나로 잘라서 찍는다. 구경꾼의 얼굴이 배경이 된다.
 L3. 감정-장소 매핑 (구체적 촬영 공간 단위):
@@ -2319,7 +2327,16 @@ L3. 감정-장소 매핑 (구체적 촬영 공간 단위):
     ※ S# 헤더에 건물명 + 구체적 공간을 반드시 표기할 것.
       나쁨: S#1. 아파트. 밤.  →  좋음: S#1. (인물 이름)의 집 — 주방. 밤.
 L4. 도파민 장소 설계: 굴욕 장면과 역전 장면은 같은 장소에서.
-    '이 자리에서 무릎 꿇었던 내가 → 이 자리의 주인이 됐다'"""
+    '이 자리에서 무릎 꿇었던 내가 → 이 자리의 주인이 됐다'
+L5. 장면 성격에 장소를 붙인다.
+    심판(어른) 앞 공개 대결 → 중심 장소(식탁) / 둘만의 위협 → 화장실·엘리베이터·주차장·복도
+    밀담 → 침실·서재 / 혼자 꾸미거나 통화 → 주차장·차 안·자기 방
+L6. 식당·카페의 3인 장면 뒤에는 화장실·엘리베이터·주차장의 2인 장면을 이어 붙인다.
+L7. 둘만의 장면을 싱크대·약봉투·금고 같은 집 안 물건에 묶지 않는다. 묶이면 장소를 옮길 수 없다.
+L8. 바깥에서 벌어진 일을 대사로 보고하지 않는다. 은행·약국·병원 일은 그 현장의 씬으로 쓴다.
+L9. 주인공이 밥을 차리는 장면은 전체의 30% 이하.
+L10. 설정은 장소로 보여 준다. 1조 집안이면 호텔과 골프장이 나와야 한다.
+L11. 소품은 장소에 맞춘다. 카페에 앞치마, 서재에 젓가락이 나오지 않게."""
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2586,10 +2603,16 @@ def build_concept_prompt(formula_key, protagonist, villain,
       {{"name":"","emotion_role":"","dopamine_scene":""}}
     ],
     "sub_locations": ["보조 장소 3~5개"],
+    "fixed_locations": [
+      {{"name":"S# 줄에 쓸 이름 그대로 (예: 한복순의 집, 식탁)","outdoor":false,"role":"공개대결|둘만의위협|밀담|혼자|이동"}}
+    ],
     "reversal_location": "역전 장면 장소 — 굴욕 장면과 같은 장소 권장",
     "cliffhanger_location": "클리프행어 전용 장소",
     "romance_peak": "로맨스 피크 장소 + 연출"
   }},
+  "address_book": [{{"from":"부르는 사람","to":"불리는 사람","calls":"호칭 (예: 어머니 / 형님 / 동서)"}}],
+  "deadline": {{"days":0,"start_ep":1,"end_ep":0,"phrase":"기한을 부르는 말 (예: 백일)"}},
+  "fixed_numbers": [{{"what":"유산 총액","value":"1조 원"}}],
   "hook_sentence": "EP1 첫 대사 — 맥락 없이도 궁금한 한 줄",
   "first_subtitle": "{sub_info['schema_hint']}"
 }}
@@ -2609,6 +2632,12 @@ def build_concept_prompt(formula_key, protagonist, villain,
 - secrets의 reveal_ep는 한 구간에 몰지 않고 처음부터 끝까지 흩어 놓는다. 이웃한 두 비밀 사이는 15화를 넘기지 않는다.
 - secrets는 서로 다른 비밀이다. 같은 비밀을 말만 바꿔 둘로 세지 않는다. 비밀 하나가 드러날 때마다 누가 유리한지, 무엇이 걸렸는지가 바뀐다.
 - logline은 주인공+목표+장애물+판돈 구조 엄수.
+- location_design.fixed_locations는 10~15곳. 이 작품의 모든 S#은 이 목록 안에서만 쓴다.
+  야외(outdoor=true)를 3곳 이상 넣는다. 설정의 규모를 장소로 보여 준다(재벌가면 호텔·골프장).
+  호텔·회사처럼 큰 건물은 한 곳으로 고정하고 그 안의 공간(로비·화장실·엘리베이터·주차장)을 나눠 적는다.
+  각 장소에 장면 성격(role)을 붙인다. 식탁이 있는 중심 장소 하나는 공개대결, 둘만의 위협 장소를 2곳 이상.
+- address_book: 인물끼리 서로 부르는 호칭을 모두 적는다. 대본은 이 호칭만 쓴다.
+- deadline: 작품에 기한이 있으면 날 수와 시작·끝 화를 적는다(없으면 days 0). fixed_numbers: 금액·기간 같은 숫자를 처음부터 정한다.
 {TITLE_RULE}"""
 
 
@@ -2951,7 +2980,7 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 [매 화 반전]
 - 모든 화에 반전이 1번 이상 있다. summary는 그 화에서 무엇이 뒤집히는지 보이게 쓴다.
 {target_block(target)}
-{('- AI 제작 모드: 얼굴 4명 이하, 세트 5곳 이하. 새 인물과 새 장소를 늘리지 않는다. 몸싸움이 필요한 사건을 짜지 않는다.' if ai_mode else '')}
+{('- AI 제작 모드: 얼굴 4명 이하. 장소는 고정 장소 목록 안에서만. 몸싸움이 필요한 사건을 짜지 않는다.' if ai_mode else '')}
 
 [도파민 아크 원칙]
 - 매 5화 블록마다 D8 체크리스트 항목 1개 이상
@@ -3032,6 +3061,75 @@ def build_arc_prompt(concept, total_eps=100, producer_note="",
 # ═══════════════════════════════════════════════════════════════
 #  STEP 3: 5화 블록 집필
 # ═══════════════════════════════════════════════════════════════
+
+def fixed_locations(concept):
+    """컨셉의 고정 장소 목록 → [{'name','outdoor','role'}]"""
+    out = []
+    for l in ((concept or {}).get("location_design") or {}).get("fixed_locations") or []:
+        if isinstance(l, dict) and str(l.get("name", "")).strip():
+            out.append({"name": str(l["name"]).strip(), "outdoor": bool(l.get("outdoor")), "role": str(l.get("role", "")).strip()})
+        elif isinstance(l, str) and l.strip():
+            out.append({"name": l.strip(), "outdoor": bool(_OUTDOOR_RE.search(l)), "role": ""})
+    return out
+
+
+def days_left(concept, ep):
+    """기한이 있는 작품에서 그 화 시점의 남은 날 (없으면 None). 시작 화 = days, 끝 화 = 0, 사이는 고르게."""
+    d = (concept or {}).get("deadline") or {}
+    try:
+        days, s0, e0 = int(d.get("days") or 0), int(d.get("start_ep") or 1), int(d.get("end_ep") or 0)
+    except (TypeError, ValueError):
+        return None
+    if days <= 0 or e0 <= s0:
+        return None
+    ep = min(max(int(ep), s0), e0)
+    return round(days * (e0 - ep) / (e0 - s0))
+
+
+def production_block(concept, episodes):
+    """블록 집필에 넣는 제작 현실 규칙: 고정 장소 목록 · 야외 몫 · 호칭 사전 · 남은 날 · 정한 숫자 (v3.6)"""
+    fl = fixed_locations(concept)
+    eps = [int(e.get("ep", 0) or 0) for e in episodes if int(e.get("ep", 0) or 0)]
+    lines = []
+    if fl:
+        lines.append("[고정 장소 목록 — S# 줄의 장소는 이 이름 그대로, 이 목록 안에서만]")
+        for l in fl:
+            lines.append(f"  · {l['name']}{' (야외)' if l['outdoor'] else ''}{' — ' + l['role'] if l['role'] else ''}")
+        lines.append("  목록에 없는 장소가 필요하면 목록 안의 가장 가까운 장소로 옮긴다. 결말부(마지막 10화)만 예외.")
+    if eps:
+        lo, hi = min(eps), max(eps)
+        need = []
+        if any(e <= 5 for e in eps):
+            need.append("무료 구간(EP1~5)에 야외 씬이 1개 이상 있어야 한다 — 이 블록에서 넣는다")
+        if any(e % 10 in (6, 7, 8, 9, 0) for e in eps) or hi - lo >= 4:
+            need.append("이 블록 안에 야외 씬을 1개 이상 넣는다 (10화마다 1개 이상, 전체 15~20%)")
+        lines.append("[야외] " + " / ".join(need) + ". 넓은 그림 한 컷으로 열고 대사 3~5줄, 걷거나 차에 타는 움직임. 밤 야외는 위협 장면에.")
+    ab = [a for a in (concept or {}).get("address_book") or [] if isinstance(a, dict) and a.get("calls")]
+    if ab:
+        lines.append("[호칭 사전 — 이 호칭만 쓴다] " + " / ".join(f"{a.get('from','')}→{a.get('to','')}: {a['calls']}" for a in ab))
+    dl = [(e, days_left(concept, e)) for e in eps]
+    dl = [(e, d) for e, d in dl if d is not None]
+    if dl:
+        phrase = ((concept or {}).get("deadline") or {}).get("phrase") or "기한"
+        lines.append(f"[남은 날 — {phrase}] " + " / ".join(f"EP{e}: {d}일" for e, d in dl)
+                     + ". 대사에 남은 날을 말할 때는 이 숫자를 쓴다. 처음의 숫자(예: 백일)를 끝까지 되풀이하지 않는다.")
+    fn = [n for n in (concept or {}).get("fixed_numbers") or [] if isinstance(n, dict) and n.get("value")]
+    if fn:
+        lines.append("[정한 숫자 — 끝까지 같다] " + " / ".join(f"{n.get('what','')}: {n['value']}" for n in fn))
+    return ("\n" + "\n".join(lines) + "\n") if lines else ""
+
+
+STORY_LINK_RULES = """[이야기 연결 · 문구 규칙]
+- 화 끝의 협박이나 단서는 3화 안에 회수한다. 앞 블록에서 걸어 둔 것이 있으면 이 블록에서 먼저 받는다.
+- 앞 화의 마지막 대사·상황과 다음 화의 첫 장면이 이어지는지 확인한다.
+- 주인공의 반격 수단을 돌려 쓴다: 녹음 / 사진 / 증인 / 물건 / 장소. 같은 수단(종이 한 장, 앞치마 주머니)을 연달아 쓰지 않는다.
+- 바깥에서 벌어진 일을 인물이 말로 보고하지 않는다. 그 일이 벌어지는 현장(은행·약국·병원)을 씬으로 쓴다.
+- 전제어(기한·금액 같은 작품의 핵심 말)를 대사마다 붙이지 않는다. 10화에 2~3회, 매번 다른 말로.
+- 분량은 글자 수를 채우려 늘리지 않는다. 모자라면 사건을 하나 더 넣는다.
+- 최종화는 다른 화 분량의 2배를 넘기지 않는다. 넘치면 두 화로 나눈다.
+- EP 줄의 감정 표기는 한글 한 단어(예: 굴욕, 분노, 통쾌). 화살표·두 단어·이모지·영어 금지.
+- 엔진 이름·버전, 규칙 번호 같은 작업 표기는 본문에 쓰지 않는다."""
+
 
 @_paywall_filled
 def build_block_prompt(concept, arc_block, block_no,
@@ -3184,7 +3282,7 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
         lead_check = " 주인공이 맞거나 무릎 꿇거나 비는 장면이 하나라도 있으면 그 화는 실패다."
     ai_check = ""
     if ai_mode:
-        ai_check = ("\n□ [AI 제작 모드] 얼굴이 나오는 인물이 4명 이하인가? 새 세트를 늘리지 않았는가?"
+        ai_check = ("\n□ [AI 제작 모드] 얼굴이 나오는 인물이 4명 이하인가? 고정 장소 목록 밖의 장소를 쓰지 않았는가?"
                     "\n□ [AI 제작 모드] 몸이 닿는 순간을 (암전)과 (소리만)으로 처리했는가? 두 사람이 침대에 있는 그림이 없는가?")
     ep1_check = ""
     if is_pilot_block:
@@ -3212,6 +3310,7 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 연출: {rating_info['technique']}
 도파민: {rating_info['dopamine_note']}
 
+{production_block(concept, episodes)}
 [장소 설계 — S# 씬은 이 장소 중에서 선택]
 주 장소: {main_loc}
 클리프행어 장소: {loc.get('cliffhanger_location','문 앞/엘리베이터')}
@@ -3220,6 +3319,9 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 {loc_detail}
 ※ S#1, S#2 장소를 위 목록에서 선택하라. 감정 모드와 장소의 감정 역할이 일치해야 한다.
 ※ 굴욕 감정 → 구경꾼이 있는 자리, 설렘 감정 → 둘만 남는 좁은 자리, 역전 감정 → 굴욕당한 바로 그 장소.
+※ 심판 앞 공개 대결 → 중심 장소 / 둘만의 위협 → 화장실·엘리베이터·주차장·복도 / 밀담 → 침실·서재 / 혼자 꾸미기·통화 → 주차장·차 안·자기 방.
+※ 식당·카페의 3인 장면 뒤에는 화장실·엘리베이터·주차장의 2인 장면을 붙인다. 주인공이 밥을 차리는 장면은 이 블록 씬의 30% 이하.
+{STORY_LINK_RULES}
 
 [캐릭터 바이블]
 주인공: {protagonist.get('name','')} ({protagonist.get('age','')})
@@ -3276,7 +3378,7 @@ EP⟦PW-1⟧~⟦PW⟧ 임무: 지금까지 쌓은 가장 큰 떡밥이 터지는
 
 [출력 포맷 — 대사 중심 숏폼 리듬]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EP [번호] | [감정모드 이모지] | [도파민]
+EP [번호] | [감정 한 단어]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {sub_info['format_line']}
 
@@ -3330,6 +3432,8 @@ S#은 EP마다 S#1부터 리셋. 1화 1~3씬. 장소/시간 전환 = 새 씬.
 □ 매 화에 반전이 1번 이상 있는가?
 □ 화면 인서트가 한 화의 1/3 이하인가?{ai_check}
 □ [자막] 줄이 선택한 형식({sub_info['name']})인가? 줄 자체는 모든 화에 있는가?
+□ S# 장소가 모두 고정 장소 목록 안인가? 이 블록에 야외 씬이 있는가? 한 장소에 씬이 몰리지 않았는가?
+□ 앞에서 걸어 둔 협박·단서를 3화 안에 받았는가? 반격 수단이 직전 화와 다른가? 바깥 일을 말로 보고하지 않았는가?
 □ 대괄호 자리표시([주인공] 등)나 규칙 예시의 장소·대사가 대본에 들어가지 않았는가?{ep1_check}{rewrite_note}"""
 
 
@@ -3636,6 +3740,165 @@ _REMOTE_RE = re.compile(r"\((?:[^)]*)(?:전화|통화|음성|메시지|문자|�
 _INSERT_RE = re.compile(r"핸드폰|휴대폰|스마트폰|폰 화면|폰을|노트북|모니터|태블릿|화면|카톡|문자|메시지|메일|알림|발신|검색창|스크롤|클릭|타이핑|인서트|DM")
 _CHAT_RE = re.compile(r"\((?:[^)]*)(?:카톡|문자|메시지|메일|DM|채팅)")
 _BED_RE = re.compile(r"침대|이불 속|한 이불")
+# 야외로 보는 장소 말 (S# 장소에 들어 있으면 야외). 고정 장소 목록에 outdoor 가 적혀 있으면 그것이 먼저다.
+_OUTDOOR_RE = re.compile(r"야외|정원|마당|테라스|그린|카트|골프장 (?:길|코스)|산책로|공원|거리|골목|길가|길 위|대문 앞|집 앞|건물 앞|병원 앞|입구 앞|"
+                         r"주차장 입구|옥상|강변|한강|해변|바닷가|정류장|횡단보도|광장|벤치|노천|숲|묘지|산길|캠퍼스")
+_TIME_TAIL = re.compile(r"[.,]\s*(?:이른\s*|늦은\s*|다음 날\s*)?(낮|밤|아침|저녁|새벽|오전|오후|점심|해질녘|해 질 녘|밤늦게|다음 날[^.]*|같은 시각|연속)\s*\.?\s*$")
+_COOK_RE = re.compile(r"밥(?:상)?을 차리|상을 차리|밥상을 차렸|국을 끓|국을 뜨|반찬을 놓|밥을 푼|밥을 퍼|설거지|앞치마를 (?:두르|매)")
+_TOOL_WORDS = ["종이", "서류", "봉투", "사진", "녹음", "녹취", "영상", "USB", "통장", "영수증", "편지", "증인", "약봉투", "주머니", "앞치마"]
+_REPORT_RE = re.compile(r"(?:은행|약국|병원|경찰서|법원|검찰)(?:에서|에 갔|에 다녀|이래|래요|랍니다|이라더라|이랬)")
+
+
+def scene_place(header):
+    """'S#1. 한복순의 집, 식탁. 낮.' → '한복순의 집, 식탁'"""
+    h = re.sub(r"^\s*S#\s*\d+\s*[.)]?\s*", "", header or "").strip()
+    h = re.sub(r"\([^)]*\)", "", h).strip()
+    for _ in range(3):
+        h = _TIME_TAIL.sub("", h).strip()
+    return h.rstrip(". ").strip()
+
+
+def scene_time(header):
+    m = re.search(r"(낮|밤|아침|저녁|새벽|오전|오후|점심|해질녘|해 질 녘)\s*\.?\s*$", (header or "").strip())
+    return m.group(1) if m else ""
+
+
+def _place_key(name):
+    return re.sub(r"[\s,·—\-()]", "", name or "")
+
+
+def location_report(text, concept=None):
+    """원고 전체(또는 블록)의 장소 통계 (v3.6). 집필 후 표로 보여 주고 문제를 문장으로 돌려준다."""
+    parsed = parse_script(text, concept)
+    eps = parsed["episodes"]
+    fl = fixed_locations(concept)
+    fixed = {_place_key(l["name"]): l for l in fl}
+    total_eps = int((concept or {}).get("total_eps") or 0) or (max((e["ep"] for e in eps), default=0))
+    rows, scenes = {}, []
+    for ep in eps:
+        for sc in ep["scenes"]:
+            if not sc["header"]:
+                continue
+            place = scene_place(sc["header"])
+            key = _place_key(place)
+            fx = fixed.get(key) or next((v for k, v in fixed.items() if k and (k in key or key in k)), None)
+            outdoor = fx["outdoor"] if fx else bool(_OUTDOOR_RE.search(place))
+            body = " ".join(ln["text"] for ln in sc["lines"])
+            scenes.append({"ep": ep["ep"], "place": place, "outdoor": outdoor, "time": scene_time(sc["header"]),
+                           "fixed": bool(fx) if fl else None, "cook": bool(_COOK_RE.search(body)), "body": body})
+            r = rows.setdefault(place, {"place": place, "scenes": 0, "eps": set(), "outdoor": outdoor,
+                                        "in_list": (bool(fx) if fl else None), "night": 0})
+            r["scenes"] += 1
+            r["eps"].add(ep["ep"])
+            r["night"] += scene_time(sc["header"]) in ("밤", "새벽")
+    n = len(scenes)
+    table = sorted(rows.values(), key=lambda r: -r["scenes"])
+    for r in table:
+        r["share"] = round(r["scenes"] / n, 3) if n else 0
+        r["eps"] = sorted(r["eps"])
+    out_n = sum(1 for x in scenes if x["outdoor"])
+    stats = {"scenes": n, "places": len(table), "outdoor": out_n, "outdoor_ratio": round(out_n / n, 3) if n else 0,
+             "cook": sum(1 for x in scenes if x["cook"]), "table": table}
+    issues = []
+    if not n:
+        return {"issues": issues, "stats": stats}
+    top = table[0]
+    if top["share"] > 0.40:
+        issues.append(f"'{top['place']}' 씬이 {n}씬 중 {top['scenes']}씬({top['share']:.0%})으로 40%를 넘습니다. "
+                      f"둘만의 위협은 화장실·엘리베이터·주차장으로, 밀담은 침실·서재로 옮깁니다.")
+    whole = len({x['ep'] for x in scenes}) >= 20
+    if whole and not (0.15 <= stats["outdoor_ratio"] <= 0.20):
+        issues.append(f"야외 씬이 {n}씬 중 {out_n}씬({stats['outdoor_ratio']:.0%})입니다. 15~20%로 맞춥니다.")
+    ep_set = sorted({x["ep"] for x in scenes})
+    for start in range(1, (max(ep_set) if ep_set else 0) + 1, 10):
+        span = [e for e in ep_set if start <= e < start + 10]
+        if len(span) >= 5 and not any(x["outdoor"] for x in scenes if start <= x["ep"] < start + 10):
+            issues.append(f"EP{start}~{start + 9}에 야외 씬이 없습니다. 10화마다 1개 이상 넣습니다.")
+    if any(e <= 5 for e in ep_set) and not any(x["outdoor"] for x in scenes if x["ep"] <= 5):
+        issues.append("무료 구간(EP1~5)에 야외 씬이 없습니다. 1씬 이상 넣습니다.")
+    if whole:
+        tail = total_eps - 9 if total_eps else 10 ** 6
+        once = [r["place"] for r in table if r["scenes"] == 1 and r["eps"][0] < tail]
+        if once:
+            issues.append(f"한 번만 나오는 장소 {len(once)}곳: {', '.join(once[:8])}{' …' if len(once) > 8 else ''}. "
+                          f"두 번 이상 쓰거나 목록 안의 장소로 옮깁니다.")
+        if fl:
+            outside = [r["place"] for r in table if r["in_list"] is False]
+            if outside:
+                issues.append(f"고정 장소 목록에 없는 장소 {len(outside)}곳: {', '.join(outside[:8])}. 목록 안으로 옮깁니다.")
+        first = next((x["place"] for x in scenes if x["ep"] == ep_set[0]), "")
+        last_ep = max(ep_set)
+        if total_eps and last_ep == total_eps and first:
+            lasts = {_place_key(x["place"]) for x in scenes if x["ep"] == last_ep}
+            if _place_key(first) not in lasts and top["place"] not in [x["place"] for x in scenes if x["ep"] == last_ep]:
+                issues.append(f"1화의 장소('{first}')·중심 장소('{top['place']}')가 최종화에 나오지 않습니다. 같은 중심 장소에서 끝냅니다.")
+        if stats["cook"] / n > 0.30:
+            issues.append(f"밥을 차리는 장면이 {n}씬 중 {stats['cook']}씬으로 30%를 넘습니다.")
+        nights_out = sum(1 for x in scenes if x["outdoor"] and x["time"] in ("밤", "새벽"))
+        if out_n >= 4 and nights_out == 0:
+            issues.append("야외 씬이 모두 낮입니다. 밤 야외(주차장 입구, 가로등 아래 집 앞)를 위협 장면에 씁니다.")
+    return {"issues": issues, "stats": stats}
+
+
+def story_report(text, concept=None):
+    """원고 전체의 이야기 연결·문구 통계 (v3.6): 반격 수단 반복, 바깥 일 말로 보고, EP 감정 표기, 남은 날 숫자, 최종화 분량."""
+    parsed = parse_script(text, concept)
+    eps = parsed["episodes"]
+    issues, stats = [], {}
+    body = "\n".join(ln["text"] for e in eps for sc in e["scenes"] for ln in sc["lines"])
+    tools = {w: len(re.findall(re.escape(w), body)) for w in _TOOL_WORDS}
+    tools = {w: c for w, c in sorted(tools.items(), key=lambda kv: -kv[1]) if c}
+    stats["tools"] = tools
+    tot = sum(tools.values())
+    if tot >= 20:
+        w, c = next(iter(tools.items()))
+        if c / tot > 0.25 or c >= 60:
+            issues.append(f"반격 수단이 '{w}'에 몰려 있습니다({c}회 / 전체 {tot}회). 녹음·사진·증인·물건·장소를 번갈아 씁니다.")
+    reports = [(e["ep"], ln["text"]) for e in eps for sc in e["scenes"] for ln in sc["lines"] if ln["speaker"] and _REPORT_RE.search(ln["text"])]
+    stats["reported"] = len(reports)
+    if len(reports) >= 5:
+        issues.append(f"바깥 일을 대사로 전하는 줄이 {len(reports)}개입니다 (예: EP{reports[0][0]} \"{reports[0][1][:30]}\"). 현장 씬으로 바꿉니다.")
+    bad_emo = []
+    for e in eps:
+        lab = e["header"].split("|", 1)[1].strip() if "|" in e["header"] else ""
+        lab = lab.split("|")[0].strip()
+        if lab and (not re.fullmatch(r"[가-힣]{1,6}", lab)):
+            bad_emo.append(f"EP{e['ep']} '{lab}'")
+    if bad_emo:
+        issues.append(f"EP 줄 감정 표기가 한글 한 단어가 아닙니다: {', '.join(bad_emo[:6])}.")
+    if re.search(r"(?:v|V)\d+\.\d+|ENGINE|엔진 버전", "\n".join(e["header"] for e in eps) + body):
+        issues.append("본문에 엔진 이름·버전 표기가 들어 있습니다. 지웁니다.")
+    dl = (concept or {}).get("deadline") or {}
+    phrase = (dl.get("phrase") or "").strip()
+    if phrase:
+        late = [e["ep"] for e in eps for sc in e["scenes"] for ln in sc["lines"]
+                if ln["speaker"] and phrase in ln["text"] and (days_left(concept, e["ep"]) or 0) < int(dl.get("days") or 0) * 0.8
+                and re.search(re.escape(phrase) + r"\s*(?:남|밖에|안에)", ln["text"])]
+        if late:
+            issues.append(f"'{phrase} 남은' 같은 처음 기한 표현이 EP{', EP'.join(map(str, sorted(set(late))[:6]))}에도 나옵니다. 그 화의 남은 날로 고칩니다.")
+    lens = [(e["ep"], sum(len(ln["text"]) for sc in e["scenes"] for ln in sc["lines"])) for e in eps]
+    if len(lens) >= 5:
+        avg = sum(l for _, l in lens[:-1]) / max(1, len(lens) - 1)
+        if lens[-1][1] > avg * 2:
+            issues.append(f"마지막 화(EP{lens[-1][0]})가 다른 화 평균의 {lens[-1][1] / avg:.1f}배입니다. 두 화로 나눕니다.")
+    return {"issues": issues, "stats": stats}
+
+
+HOOK_REVIEW_SYSTEM = """숏폼 드라마 대본의 연결을 점검하는 스크립트 에디터입니다. 고치지 않고 목록만 만듭니다.
+1) 화 끝에 건 협박·단서·약속 가운데 3화 안에 회수되지 않은 것.
+2) 앞 화 마지막 대사·상황과 다음 화 첫 장면이 맞지 않는 곳.
+JSON 만 출력: {"unpaid":[{"ep":0,"hook":"걸어 둔 것","paid_ep":0}],"breaks":[{"ep":0,"problem":""}]}
+paid_ep 는 회수된 화, 끝까지 회수되지 않았으면 0."""
+
+
+def build_hook_review_prompt(text):
+    """집필 후 미회수 목록용 입력: 화마다 마지막 4줄과 다음 화 첫 4줄만 보낸다 (100화도 한 번에 들어가게)."""
+    parsed = parse_script(text)
+    rows = []
+    for e in parsed["episodes"]:
+        lines = [ln["text"] if not ln["speaker"] else f"{ln['speaker']}: {ln['text']}" for sc in e["scenes"] for ln in sc["lines"]]
+        rows.append(f"EP{e['ep']} 처음: " + " / ".join(lines[:4]) + f"\nEP{e['ep']} 끝: " + " / ".join(lines[-4:]))
+    return "\n".join(rows)
 _PARTICLES = "이가은는을를의에와과도만로께서"
 
 
@@ -4013,6 +4276,18 @@ def check_script(text, concept=None, ai_mode=False, fixed_text="", premise="", p
     issues += check_finale_quotes(parsed, finale_note, int((concept or {}).get("total_eps") or 0))
     issues += check_wording(parsed, concept, prior_text)
     issues += check_premise_terms(parsed, concept, premise, prior_text)
+    fl = fixed_locations(concept)
+    if fl:
+        fixed = {_place_key(l["name"]) for l in fl}
+        last10 = (total_eps or 10 ** 6) - 9
+        outside = sorted({scene_place(sc["header"]) for ep in eps for sc in ep["scenes"] if sc["header"] and ep["ep"] < last10
+                          and not any(k and (k in _place_key(scene_place(sc["header"])) or _place_key(scene_place(sc["header"])) in k) for k in fixed)})
+        if outside:
+            issues.append(f"고정 장소 목록에 없는 장소: {', '.join(outside[:6])}. 목록 안의 가장 가까운 장소로 옮깁니다.")
+    for ep in eps:
+        lab = ep["header"].split("|", 1)[1].split("|")[0].strip() if "|" in ep["header"] else ""
+        if lab and not re.fullmatch(r"[가-힣]{1,6}", lab):
+            issues.append(f"EP {ep['ep']}: 감정 표기 '{lab}'를 한글 한 단어로 고칩니다.")
 
     faces = set()
     for ep in eps:
@@ -4026,7 +4301,8 @@ def check_script(text, concept=None, ai_mode=False, fixed_text="", premise="", p
         stats["per_ep"].append({"ep": ep["ep"], "lines": len(lines), "dialogue": len(dialog),
                                 "inserts": len(inserts), "scenes": len(ep["scenes"]),
                                 "chars": body, "floor": floor})
-        if lines and body < floor:
+        # v3.6 분량은 글자 수만으로 보지 않는다: 하한의 90% 이상이고 대사가 14줄 이상이면 통과
+        if lines and (body < floor * 0.9 or (body < floor and len(dialog) < 14)):
             issues.append(f"EP {ep['ep']}: 본문이 {body}자로 {VOLUME_LABEL[kind]} 분량 하한 {floor}자보다 짧습니다. "
                           f"같은 말을 늘리지 말고 사건을 하나 더 넣어 {floor}자 이상으로 씁니다.")
         if lead and dialog and not any(_same_person(ln["speaker"], l) for ln in dialog for l in lead):
